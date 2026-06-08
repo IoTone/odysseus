@@ -17,10 +17,12 @@
 
 (provide version
          repo-root
+         data-dir
          emit
          fail
          run
-         pretty-from-args?)
+         pretty-from-args?
+         jsexpr->pretty-string)
 
 ;; Bumped centrally; every odysseus-* CLI reports this (mirrors cli.py VERSION).
 (define version "0.1.0")
@@ -30,6 +32,12 @@
 ;; correctly both when run from source and from a `raco exe` binary.
 (define-runtime-path here-dir ".")
 (define repo-root (simplify-path (build-path here-dir 'up 'up)))
+
+;; Where app data lives (presets.json, etc.). Defaults to <repo>/data to match
+;; the Python tools; ODYSSEUS_DATA_DIR overrides it (used by CI for isolation).
+(define (data-dir)
+  (define env (getenv "ODYSSEUS_DATA_DIR"))
+  (if (and env (not (string=? env ""))) (string->path env) (build-path repo-root "data")))
 
 ;; ---- JSON output -----------------------------------------------------------
 
@@ -62,6 +70,12 @@
      (write-string (make-string ind #\space) out)
      (write-string "]" out)]
     [else (write-json x out)]))
+
+;; 2-space pretty JSON as a string (for writing files, e.g. presets.json).
+(define (jsexpr->pretty-string x)
+  (define o (open-output-string))
+  (write-json-pretty x o 0)
+  (get-output-string o))
 
 ;; Write JSON to stdout. Pretty-print when --pretty was passed or stdout is a
 ;; TTY (matches cli.py emit()).

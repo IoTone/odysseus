@@ -1,0 +1,141 @@
+// ci/Jenkinsfile — cross-platform CI for the Racket port of Odysseus.
+//
+// Design goals (see ../PORTING_PLAN.md):
+//   - Build + test the port on Linux, macOS, and Windows from one pipeline.
+//   - Linux is wired up now; macOS/Windows stages are written and ready but
+//     gated OFF by default until labeled agents exist ("verify later").
+//   - Every platform: install the *right* Racket, byte-compile, run the
+//     portable Racket test suite, and build standalone binaries (raco exe).
+//   - Linux additionally runs the Python-vs-Racket fidelity diffs (needs the
+//     app venv, which only the Linux agent provides).
+//
+// Toolchain policy mirrors install-racket.sh: official Racket on Linux/Windows,
+// Homebrew on macOS.
+
+pipeline {
+  agent none
+
+  parameters {
+    booleanParam(name: 'RUN_LINUX',   defaultValue: true,  description: 'Build/test on Linux (Debian/Ubuntu)')
+    booleanParam(name: 'RUN_MACOS',   defaultValue: false, description: 'Build/test on macOS (needs an agent labeled "macos")')
+    booleanParam(name: 'RUN_WINDOWS', defaultValue: false, description: 'Build/test on Windows (needs an agent labeled "windows")')
+  }
+
+  environment {
+    RACKET_VERSION = '9.2'
+  }
+
+  options {
+    timestamps()
+    timeout(time: 40, unit: 'MINUTES')
+  }
+
+  stages {
+    stage('Build & Test (matrix)') {
+      parallel {
+
+        // ---------------------------------------------------------------- Linux
+        stage('Linux') {
+          when { expression { return params.RUN_LINUX } }
+          agent { label 'linux' }
+          environment { RACKET_PREFIX = "${WORKSPACE}/.racket" }
+          steps {
+            sh '''
+              set -eu
+              # Official Racket, in-place under the workspace (cached across builds).
+              if [ ! -x "$RACKET_PREFIX/bin/racket" ]; then
+                RACKET_PREFIX="$RACKET_PREFIX" RACKET_VERSION="$RACKET_VERSION" \
+                  racket/install-racket.sh
+              fi
+              export PATH="$RACKET_PREFIX/bin:$PATH"
+              racket --version
+
+              # Deps + byte-compile (compile failures fail the build).
+              ( cd racket && raco pkg install --auto --batch --skip-installed web-server-lib db-lib || true )
+              ( cd racket && raco make cli/*.rkt server/*.rkt core/*.rkt test/*.rkt )
+
+              # Portable behavior suite.
+              ( cd racket && racket test/run-tests.rkt )
+
+              # Python-vs-Racket fidelity (Linux only — needs the app venv).
+              python3 -m venv .venv
+              . .venv/bin/activate
+              pip install -q -r requirements.txt
+              chmod +x ci/fidelity.sh && ci/fidelity.sh
+              deactivate
+
+              # Standalone binaries (the packaging deliverable).
+              mkdir -p racket/dist
+              for t in odysseus-logs odysseus-preset odysseus-signature; do
+                raco exe -o "racket/dist/$t" "racket/cli/$t.rkt"
+              done
+            '''
+            archiveArtifacts artifacts: 'racket/dist/*', fingerprint: true, allowEmptyArchive: true
+          }
+        }
+
+        // ---------------------------------------------------------------- macOS
+        stage('macOS') {
+          when { expression { return params.RUN_MACOS } }
+          agent { label 'macos' }
+          steps {
+            sh '''
+              set -eu
+              # macOS: Homebrew is the tried-and-true path.
+              command -v racket >/dev/null 2>&1 || brew install minimal-racket
+              racket --version
+              ( cd racket && raco pkg install --auto --batch --skip-installed web-server-lib db-lib || true )
+              ( cd racket && raco make cli/*.rkt server/*.rkt core/*.rkt test/*.rkt )
+              ( cd racket && racket test/run-tests.rkt )
+              mkdir -p racket/dist
+              for t in odysseus-logs odysseus-preset odysseus-signature; do
+                raco exe -o "racket/dist/$t" "racket/cli/$t.rkt"
+              done
+            '''
+            archiveArtifacts artifacts: 'racket/dist/*', fingerprint: true, allowEmptyArchive: true
+          }
+        }
+
+        // -------------------------------------------------------------- Windows
+        stage('Windows') {
+          when { expression { return params.RUN_WINDOWS } }
+          agent { label 'windows' }
+          steps {
+            // PowerShell: install official Racket if absent, then build/test.
+            powershell '''
+              $ErrorActionPreference = "Stop"
+              if (-not (Get-Command racket -ErrorAction SilentlyContinue)) {
+                $ver = $env:RACKET_VERSION
+                $url = "https://download.racket-lang.org/installers/$ver/racket-$ver-x86_64-win32-cs.exe"
+                $exe = "$env:TEMP\\racket-install.exe"
+                Invoke-WebRequest -Uri $url -OutFile $exe
+                # /S = silent; /D = install dir (must be last, unquoted, NSIS convention)
+                Start-Process -Wait -FilePath $exe -ArgumentList "/S","/D=C:\\racket"
+                $env:Path = "C:\\racket;" + $env:Path
+              }
+              racket --version
+              Push-Location racket
+              raco pkg install --auto --batch --skip-installed web-server-lib db-lib
+              raco make cli/*.rkt server/*.rkt core/*.rkt test/*.rkt
+              racket test/run-tests.rkt
+              New-Item -ItemType Directory -Force -Path dist | Out-Null
+              foreach ($t in @("odysseus-logs","odysseus-preset","odysseus-signature")) {
+                raco exe -o "dist/$t.exe" "cli/$t.rkt"
+              }
+              Pop-Location
+            '''
+            archiveArtifacts artifacts: 'racket/dist/*', fingerprint: true, allowEmptyArchive: true
+          }
+        }
+      }
+    }
+  }
+
+  post {
+    always {
+      node('linux') {
+        echo 'CI complete. Linux is wired up; flip RUN_MACOS / RUN_WINDOWS once agents exist.'
+      }
+    }
+  }
+}
