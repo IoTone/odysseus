@@ -54,8 +54,8 @@ pipeline {
               raco pkg install --auto --batch --skip-installed web-server-lib db-lib || true
               raco pkg install --link --batch --skip-installed \
                 racket/pkgs/cli-kit racket/pkgs/db-kit racket/pkgs/web-kit || true
-              # Byte-compile (compile failures fail the build).
-              ( cd racket && raco make config.rkt cli/*.rkt server/*.rkt test/*.rkt )
+              # Byte-compile (explicit entry points — cross-shell safe).
+              ( cd racket && raco make config.rkt cli/odysseus-logs.rkt cli/odysseus-preset.rkt cli/odysseus-signature.rkt server/main.rkt test/run-tests.rkt )
 
               # Portable behavior suite.
               ( cd racket && racket test/run-tests.rkt )
@@ -90,7 +90,7 @@ pipeline {
               raco pkg install --auto --batch --skip-installed web-server-lib db-lib || true
               raco pkg install --link --batch --skip-installed \
                 racket/pkgs/cli-kit racket/pkgs/db-kit racket/pkgs/web-kit || true
-              ( cd racket && raco make config.rkt cli/*.rkt server/*.rkt test/*.rkt )
+              ( cd racket && raco make config.rkt cli/odysseus-logs.rkt cli/odysseus-preset.rkt cli/odysseus-signature.rkt server/main.rkt test/run-tests.rkt )
               ( cd racket && racket test/run-tests.rkt )
               mkdir -p racket/dist
               for t in odysseus-logs odysseus-preset odysseus-signature; do
@@ -122,7 +122,7 @@ pipeline {
               raco pkg install --auto --batch --skip-installed web-server-lib db-lib
               raco pkg install --link --batch --skip-installed racket\pkgs\cli-kit racket\pkgs\db-kit racket\pkgs\web-kit
               Push-Location racket
-              raco make config.rkt cli/*.rkt server/*.rkt test/*.rkt
+              raco make config.rkt cli/odysseus-logs.rkt cli/odysseus-preset.rkt cli/odysseus-signature.rkt server/main.rkt test/run-tests.rkt
               racket test/run-tests.rkt
               New-Item -ItemType Directory -Force -Path dist | Out-Null
               foreach ($t in @("odysseus-logs","odysseus-preset","odysseus-signature")) {

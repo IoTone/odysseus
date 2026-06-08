@@ -26,9 +26,12 @@ os="$(uname -s)"
 arch="$(uname -m)"
 
 if [ "$os" = "Darwin" ]; then
-  echo "macOS detected — use Homebrew instead:"
-  echo "    brew install --cask racket      # full, includes DrRacket + GUI"
-  echo "    brew install minimal-racket     # smaller (dev was bootstrapped on this)"
+  echo "macOS detected — use Homebrew (works on Intel and Apple Silicon):"
+  echo "    brew install minimal-racket     # smaller; racket + raco on PATH"
+  echo "    brew install --cask racket      # full official build (DrRacket+GUI)"
+  echo
+  echo "If 'raco exe' misbehaves with minimal-racket, prefer the --cask (official)"
+  echo "build. Then validate with racket/VALIDATION.md."
   exit 0
 fi
 

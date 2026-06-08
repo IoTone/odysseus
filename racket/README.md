@@ -36,7 +36,14 @@ the app depends on them.
 
   (Not Homebrew on Linux — its `minimal-racket` bottle has a broken `raco exe`.
   Not the Debian `racket` package — split/outdated.)
-- **macOS:** `brew install --cask racket` (full) or `brew install minimal-racket`.
+- **macOS:** `brew install minimal-racket` (or `brew install --cask racket` for
+  the official build; prefer the cask if `raco exe` misbehaves).
+- **Windows:** official installer
+  `racket-9.2-x86_64-win32-cs.exe` from <https://download.racket-lang.org/>
+  (no native ARM build — use x86_64 on Windows-on-ARM).
+
+**Validating on macOS / Windows?** Follow [`VALIDATION.md`](VALIDATION.md) — a
+per-OS, copy-paste runbook with expected output.
 
 ## Dev workflow
 
@@ -44,8 +51,9 @@ the app depends on them.
     raco pkg install --auto --skip-installed web-server-lib db-lib
     raco pkg install --link pkgs/cli-kit pkgs/db-kit pkgs/web-kit
 
-    # byte-compile (catches errors fast)
-    cd racket && raco make config.rkt cli/*.rkt server/*.rkt test/*.rkt
+    # byte-compile (explicit entry points — also works in PowerShell, no globbing)
+    cd racket && raco make config.rkt cli/odysseus-logs.rkt cli/odysseus-preset.rkt \
+                          cli/odysseus-signature.rkt server/main.rkt test/run-tests.rkt
 
     # run a CLI from source
     racket cli/odysseus-logs.rkt list --pretty
