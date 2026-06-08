@@ -117,7 +117,54 @@
     "'2026-03-10 02:00:05.000000','success','ok output')"))
   (query-exec c (string-append
     "INSERT INTO task_runs VALUES('r2','t1','2026-03-09 02:00:00.000000',NULL,'error','boom')"))
+  ;; mcp_servers
+  (query-exec c "DROP TABLE IF EXISTS mcp_servers")
+  (query-exec c (string-append
+    "CREATE TABLE mcp_servers(id TEXT PRIMARY KEY,name TEXT,transport TEXT,command TEXT,args TEXT,"
+    "env TEXT,url TEXT,is_enabled INT,oauth_config TEXT,created_at TEXT)"))
+  (query-exec c (string-append
+    "INSERT INTO mcp_servers VALUES('m1','Filesystem','stdio','npx','[\"server-fs\",\"/tmp\"]',"
+    "'{\"TOKEN\":\"secret\"}',NULL,1,NULL,'2026-03-01 00:00:00.000000')"))
+  (query-exec c (string-append
+    "INSERT INTO mcp_servers VALUES('m2','Remote','sse',NULL,NULL,NULL,'http://x',0,'{}',"
+    "'2026-03-02 00:00:00.000000')"))
+  ;; calendars + events
+  (query-exec c "DROP TABLE IF EXISTS calendars")
+  (query-exec c "CREATE TABLE calendars(id TEXT PRIMARY KEY,name TEXT,color TEXT,source TEXT,created_at TEXT)")
+  (query-exec c "INSERT INTO calendars VALUES('cal1','Personal','#fff','local','2026-01-01 00:00:00.000000')")
+  (query-exec c "INSERT INTO calendars VALUES('cal2','Work','#000','local','2026-01-02 00:00:00.000000')")
+  (query-exec c "DROP TABLE IF EXISTS calendar_events")
+  (query-exec c (string-append
+    "CREATE TABLE calendar_events(uid TEXT PRIMARY KEY,calendar_id TEXT,summary TEXT,description TEXT,"
+    "location TEXT,dtstart TEXT,dtend TEXT,all_day INT,is_utc INT,rrule TEXT,color TEXT,status TEXT,"
+    "importance TEXT,event_type TEXT,created_at TEXT,updated_at TEXT)"))
+  (query-exec c (string-append
+    "INSERT INTO calendar_events VALUES('e1','cal1','Lunch','','',"
+    "'2026-05-10 12:00:00.000000','2026-05-10 13:00:00.000000',0,0,'','','confirmed','normal',NULL,"
+    "'2026-04-01 00:00:00.000000','2026-04-01 00:00:00.000000')"))
+  (query-exec c (string-append
+    "INSERT INTO calendar_events VALUES('e2','cal1','Flight (UTC)','','',"
+    "'2026-05-15 08:00:00.000000','2026-05-15 11:00:00.000000',0,1,'','','confirmed','high',NULL,"
+    "'2026-04-01 00:00:00.000000','2026-04-01 00:00:00.000000')"))
+  (query-exec c (string-append
+    "INSERT INTO calendar_events VALUES('e3','cal2','June thing','','',"
+    "'2026-06-01 09:00:00.000000','2026-06-01 10:00:00.000000',0,0,'','','confirmed','normal',NULL,"
+    "'2026-04-01 00:00:00.000000','2026-04-01 00:00:00.000000')"))
   (disconnect c))
+
+;; research records are JSON files under ODYSSEUS_DATA_DIR/deep_research/
+(define (seed-research!)
+  (define dir (build-path data-dir "deep_research"))
+  (make-directory* dir)
+  (define (write-rp id jx) (call-with-output-file (build-path dir (string-append id ".json"))
+                             #:exists 'replace (lambda (o) (write-json jx o))))
+  (write-rp "rp1" (hasheq 'query "quantum computing" 'category "tech" 'status "done"
+                          'started_at "2026-03-02T10:00:00" 'completed_at "2026-03-02T11:00:00"
+                          'sources (list (hasheq 'url "a") (hasheq 'url "b"))
+                          'result "# Report\nfindings about qubits"))
+  (write-rp "rp2" (hasheq 'query "coffee roasting" 'category "food" 'status "running"
+                          'started_at "2026-03-05T08:00:00" 'sources '()
+                          'result "")))
 
 ;; ---- tests -----------------------------------------------------------------
 
@@ -225,7 +272,63 @@
       (define r1 (car runs))
       (check-equal? (hash-ref r1 'completed_at) "2026-03-10T02:00:05") ; from finished_at
       (check-equal? (hash-ref r1 'output_preview) "ok output")        ; from result
-      (check-equal? (hash-ref (cadr runs) 'completed_at) ""))))       ; r2 finished_at NULL
+      (check-equal? (hash-ref (cadr runs) 'completed_at) ""))         ; r2 finished_at NULL
+
+    (test-case "odysseus-mcp list/show/enable/add/delete (env redaction)"
+      (seed-rows!)
+      (define lst (run-json (cli "odysseus-mcp.rkt") '("list") #:env env-db))
+      (check-equal? (map (lambda (m) (hash-ref m 'id)) lst) '("m1" "m2"))   ; name ASC
+      (define m1 (car lst))
+      (check-equal? (hash-ref m1 'is_enabled) #t)
+      (check-equal? (length (hash-ref m1 'args)) 2)                         ; JSON args parsed
+      (check-equal? (hash-ref (hash-ref m1 'env) 'TOKEN) "***")             ; secret redacted
+      (define reveal (run-json (cli "odysseus-mcp.rkt") '("show" "m1" "--reveal") #:env env-db))
+      (check-equal? (hash-ref (hash-ref reveal 'env) 'TOKEN) "secret")      ; --reveal shows value
+      (run-json (cli "odysseus-mcp.rkt") '("disable" "m1") #:env env-db)
+      (check-equal? (hash-ref (run-json (cli "odysseus-mcp.rkt") '("show" "m1") #:env env-db) 'is_enabled) #f)
+      (define added (run-json (cli "odysseus-mcp.rkt")
+                              '("add" "--name" "New" "--command" "echo" "--args" "[\"hi\"]") #:env env-db))
+      (check-equal? (hash-ref added 'name) "New")
+      (check-equal? (hash-ref added 'is_enabled) #t)
+      (check-equal? (hash-ref (run-json (cli "odysseus-mcp.rkt")
+                              (list "delete" (hash-ref added 'id)) #:env env-db) 'ok) #t))
+
+    (test-case "odysseus-calendar calendars/list/show/create/delete (Z suffix + range)"
+      (seed-rows!)
+      (define cals (run-json (cli "odysseus-calendar.rkt") '("calendars") #:env env-db))
+      (check-equal? (map (lambda (c) (hash-ref c 'name)) cals) '("Personal" "Work"))
+      (check-equal? (hash-ref (car cals) 'event_count) 2)                  ; cal1 has e1,e2
+      (define may (run-json (cli "odysseus-calendar.rkt")
+                            '("list" "--start" "2026-05-01" "--end" "2026-05-31") #:env env-db))
+      (check-equal? (map (lambda (e) (hash-ref e 'uid)) may) '("e1" "e2")) ; e3 (June) excluded, dtstart ASC
+      (define e1 (car may))
+      (check-equal? (hash-ref e1 'dtstart) "2026-05-10T12:00:00")          ; naive, no Z
+      (define e2 (cadr may))
+      (check-equal? (hash-ref e2 'dtstart) "2026-05-15T08:00:00Z")         ; is_utc -> Z suffix
+      (check-equal? (hash-ref e2 'calendar_name) "Personal")              ; join
+      (define created (run-json (cli "odysseus-calendar.rkt")
+                                '("create" "--title" "Standup" "--start" "2026-05-20"
+                                  "--calendar" "Work") #:env env-db))
+      (check-equal? (hash-ref created 'summary) "Standup")
+      (check-equal? (hash-ref created 'calendar_name) "Work")
+      (check-equal? (hash-ref (run-json (cli "odysseus-calendar.rkt")
+                              (list "delete" (hash-ref created 'uid)) #:env env-db) 'ok) #t))
+
+    (test-case "odysseus-research list/show/report/search/delete (filesystem)"
+      (seed-research!)
+      (define lst (run-json (cli "odysseus-research.rkt") '("list") #:env env-data))
+      (check-equal? (map (lambda (r) (hash-ref r 'id)) lst) '("rp2" "rp1"))  ; started_at DESC
+      (check-equal? (hash-ref (cadr lst) 'sources) 2)                        ; rp1 source count
+      (check-equal? (length (run-json (cli "odysseus-research.rkt")
+                            '("list" "--status" "complete") #:env env-data)) 1)  ; complete->done alias
+      (define rep (run-json (cli "odysseus-research.rkt") '("report" "rp1") #:env env-data))
+      (check-true (regexp-match? #rx"qubits" (hash-ref rep 'report)))
+      (define found (run-json (cli "odysseus-research.rkt") '("search" "coffee") #:env env-data))
+      (check-equal? (map (lambda (r) (hash-ref r 'id)) found) '("rp2"))
+      (check-equal? (hash-ref (run-json (cli "odysseus-research.rkt")
+                              '("delete" "rp2") #:env env-data) 'ok) #t)
+      (define-values (code _o) (run-cli (cli "odysseus-research.rkt") '("show" "nope") #:env env-data))
+      (check-equal? code 1))))
 
 (module+ main
   (define n (run-tests suite))

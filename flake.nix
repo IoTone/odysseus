@@ -15,6 +15,7 @@
       entrypoints = [
         "odysseus-logs" "odysseus-preset" "odysseus-signature"
         "odysseus-notes" "odysseus-sessions" "odysseus-tasks"
+        "odysseus-research" "odysseus-mcp" "odysseus-calendar"
       ];
     in
     {
@@ -34,7 +35,8 @@
             raco make config.rkt \
               cli/odysseus-logs.rkt cli/odysseus-preset.rkt cli/odysseus-signature.rkt \
               cli/odysseus-notes.rkt cli/odysseus-sessions.rkt cli/odysseus-tasks.rkt \
-              server/main.rkt test/run-tests.rkt
+              cli/odysseus-research.rkt cli/odysseus-mcp.rkt cli/odysseus-calendar.rkt \
+              server/main.rkt server/proxy.rkt test/run-tests.rkt
             runHook postBuild
           '';
 
@@ -62,6 +64,9 @@
             done
             makeWrapper ${pkgs.racket}/bin/racket $out/bin/odysseus-server \
               --add-flags "$out/share/odysseus/server/main.rkt" \
+              --set PLTCOLLECTS "$out/share/odysseus/pkgs:"
+            makeWrapper ${pkgs.racket}/bin/racket $out/bin/odysseus-proxy \
+              --add-flags "$out/share/odysseus/server/proxy.rkt" \
               --set PLTCOLLECTS "$out/share/odysseus/pkgs:"
             runHook postInstall
           '';
@@ -93,7 +98,11 @@
           odysseus-notes = mk "odysseus-notes";
           odysseus-sessions = mk "odysseus-sessions";
           odysseus-tasks = mk "odysseus-tasks";
+          odysseus-research = mk "odysseus-research";
+          odysseus-mcp = mk "odysseus-mcp";
+          odysseus-calendar = mk "odysseus-calendar";
           odysseus-server = mk "odysseus-server";
+          odysseus-proxy = mk "odysseus-proxy";
           default = mk "odysseus-logs";
         });
 

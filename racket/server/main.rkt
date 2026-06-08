@@ -13,7 +13,16 @@
 (require racket/cmdline
          racket/string
          web-kit
+         "../domain/notes.rkt"   ; same list-notes the CLI uses (strangler-fig)
          "../config.rkt")
+
+;; GET /api/notes — a real, DB-backed route taken over from FastAPI. Shares
+;; domain/notes with the CLI, so CLI and HTTP can never drift. See PORTING_PLAN
+;; "Phase 3" for the reverse-proxy split (server/proxy.rkt).
+(define (api-notes)
+  (with-handlers ([exn:fail? (lambda (e)
+                               (json-response (hasheq 'error (exn-message e)) #:code 500))])
+    (json-response (call-with-app-db #:mode 'read-only (lambda (c) (list-notes c))))))
 
 (define (handle req)
   (case (request-path req)
@@ -21,6 +30,8 @@
      (json-response (hasheq 'status  "ok"
                             'service "odysseus-racket"
                             'version app-version))]
+    [(("api" "notes"))
+     (api-notes)]
     [else
      (json-response (hasheq 'error "not found"
                             'path  (string-join (request-path req) "/"))

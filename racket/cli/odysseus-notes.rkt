@@ -11,40 +11,12 @@
 ;;   odysseus-notes delete NOTE_ID
 
 (require db
-         json
          racket/date
          racket/string
          cli-kit
          db-kit
+         "../domain/notes.rkt"   ; notes-cols, note->jsexpr, list-notes (shared with server)
          "../config.rkt")
-
-;; columns selected for serialization, in fixed order
-(define cols
-  (string-append "id,title,content,items,note_type,color,label,pinned,archived,"
-                 "due_date,source,created_at,updated_at"))
-
-;; notes.items is a JSON-array TEXT column; mirror Python _load_items.
-(define (load-items raw)
-  (cond
-    [(or (sql-null? raw) (not (string? raw)) (string=? raw "")) '()]
-    [else (with-handlers ([exn:fail? (lambda (_) '())])
-            (define v (string->jsexpr raw))
-            (if (list? v) v '()))]))
-
-(define (serialize r)
-  (hasheq 'id         (vector-ref r 0)
-          'title      (sql-or-empty (vector-ref r 1))
-          'content    (sql-or-empty (vector-ref r 2))
-          'items      (load-items (vector-ref r 3))
-          'note_type  (let ([v (vector-ref r 4)]) (if (sql-null? v) "note" v))
-          'color      (sql-or-empty (vector-ref r 5))
-          'label      (sql-or-empty (vector-ref r 6))
-          'pinned     (sql->bool (vector-ref r 7))
-          'archived   (sql->bool (vector-ref r 8))
-          'due_date   (sql-or-empty (vector-ref r 9))
-          'source     (let ([v (vector-ref r 10)]) (if (sql-null? v) "user" v))
-          'created_at (sqlite-datetime->iso (vector-ref r 11))
-          'updated_at (sqlite-datetime->iso (vector-ref r 12))))
 
 (define (now-utc-sqlite)
   (define d (seconds->date (current-seconds) #f))   ; #f = UTC
@@ -56,36 +28,28 @@
 ;; ---- subcommands -----------------------------------------------------------
 
 (define (cmd-list label archived? pinned? limit pretty?)
-  (define where
-    (string-append
-     (if archived? "" "WHERE archived = 0 ")
-     (if label (string-append (if archived? "WHERE " "AND ") "label = ? ") "")
-     (if pinned? (string-append (if (or archived? label) "AND " "WHERE ") "pinned = 1 ") "")))
-  (define params (if label (list label) '()))
-  (define sql (string-append "SELECT " cols " FROM notes " where
-                             "ORDER BY pinned DESC, sort_order ASC, updated_at DESC LIMIT ?"))
-  (define rows (call-with-app-db #:mode 'read-only
-                 (lambda (c) (apply query-rows c sql (append params (list limit))))))
-  (emit (map serialize rows) #:pretty? pretty?))
+  (emit (call-with-app-db #:mode 'read-only
+          (lambda (c) (list-notes c #:label label #:archived? archived? #:pinned? pinned? #:limit limit)))
+        #:pretty? pretty?))
 
 (define (cmd-show id pretty?)
   (define r (call-with-app-db #:mode 'read-only
               (lambda (c)
-                (define rs (query-rows c (string-append "SELECT " cols " FROM notes WHERE id = ?") id))
+                (define rs (query-rows c (string-append "SELECT " notes-cols " FROM notes WHERE id = ?") id))
                 (and (pair? rs) (car rs)))))
   (unless r (fail (format "no note with id ~s" id)))
-  (emit (serialize r) #:pretty? pretty?))
+  (emit (note->jsexpr r) #:pretty? pretty?))
 
 (define (cmd-search query limit pretty?)
   (define like (string-append "%" query "%"))
   (define rows (call-with-app-db #:mode 'read-only
                  (lambda (c)
                    (query-rows c (string-append
-                                  "SELECT " cols " FROM notes "
+                                  "SELECT " notes-cols " FROM notes "
                                   "WHERE title LIKE ? OR content LIKE ? "
                                   "ORDER BY updated_at DESC LIMIT ?")
                                like like limit))))
-  (emit (map serialize rows) #:pretty? pretty?))
+  (emit (map note->jsexpr rows) #:pretty? pretty?))
 
 (define (cmd-create title content type color label pin? pretty?)
   (define id (uuid))
@@ -106,9 +70,9 @@
   (define snap
     (call-with-app-db
      (lambda (c)
-       (define rs (query-rows c (string-append "SELECT " cols " FROM notes WHERE id = ?") id))
+       (define rs (query-rows c (string-append "SELECT " notes-cols " FROM notes WHERE id = ?") id))
        (unless (pair? rs) (fail (format "no note with id ~s" id)))
-       (define s (serialize (car rs)))
+       (define s (note->jsexpr (car rs)))
        (query-exec c "DELETE FROM notes WHERE id = ?" id)
        s)))
   (emit (hasheq 'ok #t 'deleted snap) #:pretty? pretty?))
