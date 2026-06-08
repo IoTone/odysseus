@@ -116,7 +116,7 @@
 export PATH="$HOME/racket/bin:$PATH"
 raco pkg install --auto --skip-installed web-server-lib db-lib
 raco pkg install --link racket/pkgs/cli-kit racket/pkgs/db-kit racket/pkgs/web-kit
-cd racket && raco make config.rkt cli/odysseus-logs.rkt cli/odysseus-preset.rkt cli/odysseus-signature.rkt server/main.rkt test/run-tests.rkt</pre>
+cd racket && raco make config.rkt cli/odysseus-logs.rkt cli/odysseus-preset.rkt cli/odysseus-signature.rkt cli/odysseus-notes.rkt cli/odysseus-sessions.rkt cli/odysseus-tasks.rkt server/main.rkt test/run-tests.rkt</pre>
     <p style="color:var(--muted);margin:.6em 0 0">
       On <b>macOS / Windows</b>, follow the per-OS runbook in <code>VALIDATION.md</code>
       (PowerShell needs the explicit file list above — it won't expand <code>*.rkt</code>).
@@ -139,12 +139,12 @@ const PLAN = [
     steps:["Run <code>racket/install-racket.sh</code> (or confirm <code>~/racket/bin/racket</code> exists).",
            "Run <code>racket --version</code>."],
     expect:"Prints “Welcome to Racket v9.2 [cs].” — and <code>which racket</code> points at <code>~/racket/bin/racket</code> (not Homebrew)."},
-   {id:"TB-2", t:"All modules byte-compile cleanly", cmd:"raco make config.rkt cli/odysseus-logs.rkt cli/odysseus-preset.rkt cli/odysseus-signature.rkt server/main.rkt test/run-tests.rkt && echo OK",
+   {id:"TB-2", t:"All modules byte-compile cleanly", cmd:"raco make config.rkt cli/odysseus-logs.rkt cli/odysseus-preset.rkt cli/odysseus-signature.rkt cli/odysseus-notes.rkt cli/odysseus-sessions.rkt cli/odysseus-tasks.rkt server/main.rkt test/run-tests.rkt && echo OK",
     expect:"No errors; prints <code>OK</code>. (A clean <code>compiled/</code> appears next to each source.)"},
  ]},
  {sec:"2 · Automated suite", cases:[
    {id:"AT-1", t:"Portable rackunit suite is green", cmd:"racket test/run-tests.rkt",
-    expect:"<code>3 success(es) 0 failure(s) 0 error(s) 3 test(s) run</code>. Exit code 0."},
+    expect:"<code>6 success(es) 0 failure(s) 0 error(s) 6 test(s) run</code>. Exit code 0."},
  ]},
  {sec:"3 · CLI — odysseus-logs", cases:[
    {id:"LG-1", t:"list shows app + tmux logs (compact JSON when piped)",
@@ -205,6 +205,20 @@ PY`,
     expect:"<code>{ok:true,...,bytes:N}</code> and <code>file</code> reports <code>PNG image data, 1 x 1</code>."},
    {id:"SG-4", t:"delete works; missing id errors", cmd:"racket cli/odysseus-signature.rkt delete sig2; racket cli/odysseus-signature.rkt delete nope; echo exit=$?",
     expect:"First: <code>{ok:true,id:\"sig2\",deleted:true}</code>. Second: <code>error: no signature with id \"nope\"</code>, <code>exit=1</code>."},
+ ]},
+ {sec:"5b · DB CLIs — notes / sessions / tasks", cases:[
+   {id:"DB-1", t:"Covered end-to-end by the automated suite (AT-1)",
+    pre:"notes, sessions, and tasks are exercised by the rackunit suite against a seeded temp DB: ordering, <code>--archived</code> filters, JSON <code>items</code>, ISO timestamps (zero + non-zero microseconds), task prompt preview + webhook redaction, and the run column mapping. Spot-check manually below if you like.",
+    cmd:"racket test/run-tests.rkt",
+    expect:"These are part of the 6 passing cases."},
+   {id:"DB-2", t:"notes list against a real DB (optional)",
+    pre:"From repo root, point at an existing db: <code>export DATABASE_URL=sqlite:///./data/app.db</code>, then <code>cd racket</code>.",
+    cmd:"racket cli/odysseus-notes.rkt list --pretty",
+    expect:"JSON array; non-archived only by default, pinned first; each note has <code>items</code> (array), <code>pinned</code>/<code>archived</code> (bool), and <code>created_at</code>/<code>updated_at</code> as ISO (T-separated)."},
+   {id:"DB-3", t:"tasks runs maps finished_at→completed_at, result→output_preview",
+    pre:"Needs a DB with task_runs rows.",
+    cmd:"racket cli/odysseus-tasks.rkt runs --pretty",
+    expect:"Each run: <code>started_at</code>, <code>completed_at</code> (from finished_at; \"\" if null), <code>status</code>, <code>output_preview</code> (from result)."},
  ]},
  {sec:"6 · Server (strangler-fig seed)", cases:[
    {id:"SV-1", t:"server starts and /health returns 200 JSON",

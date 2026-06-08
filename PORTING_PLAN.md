@@ -65,13 +65,16 @@ package so the *option* exists and the app's web glue is cleanly isolated.
 ~30 `odysseus-*` tools, ~4k LOC. Self-contained, lowest risk, perfect for
 hardening the toolchain. Order by dependency weight:
 1. **Filesystem-only** (no DB/HTTP): `odysseus-logs` ✅, `odysseus-preset` ✅.
-2. **DB-backed** (SQLite via `core/db.rkt` ✅): `odysseus-signature` ✅, then
-   `odysseus-notes`, `odysseus-tasks`, `odysseus-sessions`, `odysseus-memory`,
-   `odysseus-contacts` (these need ORM-model → schema mapping; signature used raw SQL).
+2. **DB-backed** (SQLite via the `db-kit` package ✅): `odysseus-signature` ✅,
+   `odysseus-notes` ✅, `odysseus-sessions` ✅, `odysseus-tasks` ✅. All raw SQL
+   against the same `DATABASE_URL`; `db-kit` carries shared value/`DateTime`
+   coercion so new ones are quick.
 3. **HTTP-client** (hit the running app): `odysseus-mail`, `odysseus-calendar`, `odysseus-research`, `odysseus-mcp`.
 - Port the git-style dispatcher (`scripts/odysseus`) last; it just execs siblings.
-- **Reclassified:** `odysseus-personal` is *not* a thin port — it wraps
-  `src/personal_docs.PersonalDocsManager` (stateful RAG index). Moved to **Phase 2**.
+- **Reclassified to Phase 2 (not thin DB ports — they wrap stateful subsystems):**
+  `odysseus-personal` (wraps `src/personal_docs` RAG index), `odysseus-memory`
+  (wraps `services/memory` ChromaDB/fastembed vector store), and `odysseus-contacts`
+  (wraps `routes/contacts_routes` vCard/route helpers, not just the DB).
 - **Exit gate:** every ported CLI passes a byte-identical JSON diff vs Python.
   Where the Python tool needs the full app venv (e.g. DB tools import `core.database`
   → fastapi), that diff runs in **CI** (see Jenkins below); Racket is verified

@@ -66,21 +66,27 @@ build *is* a passing test run. Installed commands are wrappers around nixpkgs'
 ## Dev workflow
 
 > On Nix, skip this — `nix develop` already sets everything up.
+>
+> **All commands below start from the repo ROOT.** The one-time package install
+> uses `racket/pkgs/...` paths; then you `cd racket` once and stay there for
+> build/run/test.
 
-    # one-time: catalog deps + link the local packages (editable)
+    # one-time (from repo root): catalog deps + link the local packages (editable)
     raco pkg install --auto --skip-installed web-server-lib db-lib
-    raco pkg install --link pkgs/cli-kit pkgs/db-kit pkgs/web-kit
+    raco pkg install --link racket/pkgs/cli-kit racket/pkgs/db-kit racket/pkgs/web-kit
+
+    # everything else runs from racket/ — cd once:
+    cd racket
 
     # byte-compile (explicit entry points — also works in PowerShell, no globbing)
-    cd racket && raco make config.rkt cli/odysseus-logs.rkt cli/odysseus-preset.rkt \
-                          cli/odysseus-signature.rkt server/main.rkt test/run-tests.rkt
+    raco make config.rkt cli/odysseus-logs.rkt cli/odysseus-preset.rkt \
+              cli/odysseus-signature.rkt cli/odysseus-notes.rkt \
+              cli/odysseus-sessions.rkt cli/odysseus-tasks.rkt \
+              server/main.rkt test/run-tests.rkt
 
-    # run a CLI from source
+    racket test/run-tests.rkt                 # the suite (expect: 6 success(es))
     racket cli/odysseus-logs.rkt list --pretty
-
-    # run the server
-    racket server/main.rkt --port 8099
-    curl localhost:8099/health
+    racket server/main.rkt --port 8099 &      # then: curl localhost:8099/health
 
 ## Fidelity check (the porting contract)
 

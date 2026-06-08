@@ -15,7 +15,10 @@ unless a step says `cd racket`.
 
 ## macOS
 
-### 1. Install Racket
+> **Directories:** steps 1–2 run from the **repo root**. Step 3 does `cd racket`,
+> and steps 4–6 stay in `racket/`.
+
+### 1. Install Racket  *(from repo root)*
 Homebrew is the tried-and-true path on macOS (Intel and Apple Silicon both work):
 
 ```bash
@@ -34,20 +37,22 @@ raco pkg install --link racket/pkgs/cli-kit racket/pkgs/db-kit racket/pkgs/web-k
 ```
 Expect: `raco setup` output ending without errors.
 
-### 3. Build (byte-compile)
+### 3. Build (byte-compile)  *(cd into racket/ — stay here for steps 4–6)*
 ```bash
 cd racket
 raco make config.rkt cli/odysseus-logs.rkt cli/odysseus-preset.rkt \
-          cli/odysseus-signature.rkt server/main.rkt test/run-tests.rkt
+          cli/odysseus-signature.rkt cli/odysseus-notes.rkt \
+          cli/odysseus-sessions.rkt cli/odysseus-tasks.rkt \
+          server/main.rkt test/run-tests.rkt
 echo "build: $?"
 ```
 Expect: no errors, `build: 0`.
 
-### 4. Automated test suite (the main signal)
+### 4. Automated test suite (the main signal)  *(in racket/)*
 ```bash
 racket test/run-tests.rkt
 ```
-Expect: `3 success(es) 0 failure(s) 0 error(s) 3 test(s) run`.
+Expect: `6 success(es) 0 failure(s) 0 error(s) 6 test(s) run`.
 
 ### 5. Smoke the CLIs and server
 ```bash
@@ -75,8 +80,11 @@ Expect: builds and runs. **A crash/segfault here is the key thing to report**
 
 > Use **PowerShell** (not cmd). There is no native ARM build for 9.2 — on
 > Windows-on-ARM, install the x86_64 build (runs under emulation).
+>
+> **Directories:** steps 1–2 run from the **repo root**. Step 3 does `cd racket`,
+> and steps 4–6 stay in `racket\`.
 
-### 1. Install Racket (official build)
+### 1. Install Racket (official build)  *(from repo root)*
 ```powershell
 $ver = "9.2"
 $url = "https://download.racket-lang.org/installers/$ver/racket-$ver-x86_64-win32-cs.exe"
@@ -95,18 +103,18 @@ raco pkg install --auto --batch --skip-installed web-server-lib db-lib
 raco pkg install --link --batch racket\pkgs\cli-kit racket\pkgs\db-kit racket\pkgs\web-kit
 ```
 
-### 3. Build (explicit file list — PowerShell does NOT expand `*.rkt` for raco)
+### 3. Build (explicit file list — PowerShell does NOT expand `*.rkt` for raco)  *(cd into racket\)*
 ```powershell
 cd racket
-raco make config.rkt cli/odysseus-logs.rkt cli/odysseus-preset.rkt cli/odysseus-signature.rkt server/main.rkt test/run-tests.rkt
+raco make config.rkt cli/odysseus-logs.rkt cli/odysseus-preset.rkt cli/odysseus-signature.rkt cli/odysseus-notes.rkt cli/odysseus-sessions.rkt cli/odysseus-tasks.rkt server/main.rkt test/run-tests.rkt
 ```
 Expect: no errors.
 
-### 4. Automated test suite (the main signal)
+### 4. Automated test suite (the main signal)  *(in racket\)*
 ```powershell
 racket test/run-tests.rkt
 ```
-Expect: `3 success(es) 0 failure(s) 0 error(s) 3 test(s) run`.
+Expect: `6 success(es) 0 failure(s) 0 error(s) 6 test(s) run`.
 
 ### 5. Smoke the CLIs and server
 ```powershell
@@ -137,7 +145,7 @@ For each OS, the four things that matter most:
 |---|---|---|
 | A | `racket --version` | `v9.2 [cs]` |
 | B | Build (step 3) | no errors |
-| C | Test suite (step 4) | `3 success(es) 0 failure(s)` |
+| C | Test suite (step 4) | `6 success(es) 0 failure(s)` |
 | D | `raco exe` binary runs (step 6) | prints version, **no crash** |
 
 If anything fails, copy the terminal output (especially C and D) and send it

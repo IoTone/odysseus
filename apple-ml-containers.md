@@ -66,6 +66,41 @@ specifically:
 a non-answer for accelerated ML. The HTTP-isolated ML moat we already committed to
 is the right design on every platform, and the only workable one on macOS.
 
+## macOS deployment topology
+
+The HTTP boundary is the seam: GPU-bound work stays **native** (left), everything
+else can be **containerized** in Apple `container` (right). Same seam works on
+Linux/NixOS — there the whole thing can be containers, or native, freely.
+
+```
+            macOS host (Apple Silicon)
+ ┌───────────────────────────────────────────────────────────────┐
+ │                                                                 │
+ │   NATIVE on host (Metal / ANE)        Apple `container` (Linux VMs) │
+ │   ┌──────────────────────────┐        ┌──────────────────────────┐ │
+ │   │ ML / inference service   │        │  Racket app + web-server │ │
+ │   │  · torch-MPS / MLX       │ ◀─HTTP─▶│  (web-kit; routes)       │ │
+ │   │  · vllm-metal / CoreML   │  JSON / │                          │ │
+ │   │  · embeddings, diffusion │  OpenAI ├──────────────────────────┤ │
+ │   │  GPU/ANE accelerated ✓   │  -compat│  non-ML microservices    │ │
+ │   └──────────────────────────┘        │  (email, caldav, …)      │ │
+ │        ▲ must be native:              │  CPU-only is fine here    │ │
+ │        GPU has NO container/VM        └──────────────────────────┘ │
+ │        passthrough on macOS                     ▲                   │
+ │                                                 │ OCI images,       │
+ │                                                 │ sub-second start  │
+ └───────────────────────────────────────────────────────────────┘
+        ▲                                          ▲
+        └── browser / Flutter mobile ── HTTP ──────┘  (frontend unchanged)
+```
+
+Key rules encoded above:
+- **ML service = native, GPU-accelerated, behind HTTP.** Never inside a container
+  on macOS (you'd silently drop to CPU).
+- **Racket app + non-ML services = Apple `container`** (or native — your choice).
+- The app reaches ML purely over HTTP (often OpenAI-compatible), so the ML box is
+  swappable: `vllm-metal`/Docker Model Runner today, something else later.
+
 ## Sources
 - [Meet Containerization — WWDC25](https://developer.apple.com/videos/play/wwdc2025/346/)
 - [Apple container — Wikipedia](https://en.wikipedia.org/wiki/Apple_container)
