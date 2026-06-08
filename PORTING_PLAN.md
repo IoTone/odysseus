@@ -16,7 +16,10 @@ keeping the app shippable the entire time. Three permanent rules:
    `torch`, `diffusers`, `PyMuPDF`, `chromadb`, `faster-whisper` have no Racket
    equivalent. `scripts/diffusion_server.py` is the pattern: small Python service,
    stable JSON contract. Email/CalDAV likely stay Python initially too (thin
-   library support in Racket).
+   library support in Racket). On **macOS** this is mandatory, not just preferred:
+   GPU/ANE acceleration is impossible inside any container/VM, so the ML service
+   must run **natively** and be reached over HTTP — see
+   [`apple-ml-containers.md`](apple-ml-containers.md).
 2. **Each migrated unit is proven by a fidelity diff** against the Python original
    before the Python version is retired (see pass 1 — byte-identical JSON).
 3. **The frontend (~140k LOC vanilla JS) is untouched** by the backend port.
