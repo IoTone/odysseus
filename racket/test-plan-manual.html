@@ -80,7 +80,7 @@
 <header>
   <div class="title">
     <h1>⊹ Odysseus — Racket Port</h1>
-    <span class="sub">Manual Test Plan · v0.1 (Phase 1)</span>
+    <span class="sub">Manual Test Plan · v0.2 (Phase 1 CLIs + strangler routes)</span>
   </div>
   <div class="bar" id="bar"><i class="p"></i><i class="f"></i><i class="b"></i></div>
   <div class="counts" id="counts"></div>
@@ -144,7 +144,7 @@ const PLAN = [
  ]},
  {sec:"2 · Automated suite", cases:[
    {id:"AT-1", t:"Portable rackunit suite is green", cmd:"racket test/run-tests.rkt",
-    expect:"<code>9 success(es) 0 failure(s) 0 error(s) 9 test(s) run</code>. Exit code 0."},
+    expect:"<code>10 success(es) 0 failure(s) 0 error(s) 10 test(s) run</code>. Exit code 0."},
  ]},
  {sec:"3 · CLI — odysseus-logs", cases:[
    {id:"LG-1", t:"list shows app + tmux logs (compact JSON when piped)",
@@ -220,12 +220,25 @@ PY`,
     cmd:"racket cli/odysseus-tasks.rkt runs --pretty",
     expect:"Each run: <code>started_at</code>, <code>completed_at</code> (from finished_at; \"\" if null), <code>status</code>, <code>output_preview</code> (from result)."},
  ]},
- {sec:"6 · Server (strangler-fig seed)", cases:[
+ {sec:"6 · Server &amp; routes", cases:[
    {id:"SV-1", t:"server starts and /health returns 200 JSON",
-    cmd:"racket server/main.rkt --port 8099 &  # then, in another shell:\ncurl -s -w '\\n%{http_code}\\n' localhost:8099/health",
+    pre:"Start it (Windows: <code>Start-Process racket -ArgumentList 'server/main.rkt','--port','8099'</code>; *nix: append <code>&amp;</code>). Curl from another shell.",
+    cmd:"racket server/main.rkt --port 8099\ncurl -s -w '\\n%{http_code}\\n' localhost:8099/health",
     expect:"<code>{\"status\":\"ok\",\"service\":\"odysseus-racket\",\"version\":\"0.1.0\"}</code> then <code>200</code>."},
    {id:"SV-2", t:"unknown path → 404 JSON with path echo", cmd:"curl -s -w '\\n%{http_code}\\n' localhost:8099/nope",
-    expect:"<code>{\"error\":\"not found\",\"path\":\"nope\"}</code> then <code>404</code>. (Stop server with <code>kill %1</code>.)"},
+    expect:"<code>{\"error\":\"not found\",\"path\":\"nope\"}</code> then <code>404</code>."},
+   {id:"SV-3", t:"GET /api/notes — real route, web shape {\"notes\":[...]}",
+    pre:"With an empty/seeded DB (DATABASE_URL default <code>sqlite:///./data/app.db</code>).",
+    cmd:"curl -s localhost:8099/api/notes",
+    expect:"<code>{\"notes\":[...]}</code> — wrapped object; each note has all columns (owner, items, image_url, repeat, ai_*, created_at, …). Empty DB → <code>{\"notes\":[]}</code>. Byte-identical to the FastAPI route."},
+   {id:"SV-4", t:"owner filter via trusted header", cmd:"curl -s -H 'X-Odysseus-User: nobody' localhost:8099/api/notes",
+    expect:"<code>{\"notes\":[]}</code> (no rows owned by 'nobody'). No header = no owner filter (auth-off parity). Stop server: *nix <code>kill %1</code> · Windows <code>Get-Process racket | Stop-Process</code>."},
+ ]},
+ {sec:"6b · Strangler proxy (optional / advanced)", cases:[
+   {id:"PX-1", t:"proxy routes migrated paths to Racket, rest to Python",
+    pre:"Needs the Python app running too (<code>.venv</code> + <code>uvicorn app:app --port 7000</code>) and the Racket server on 8099. Linux/macOS path; on Windows it works the same but is optional for first validation.",
+    cmd:"racket server/proxy.rkt --port 8080\ncurl -s localhost:8080/api/notes   # -> Racket (web shape)\ncurl -s -o /dev/null -w '%{http_code}\\n' localhost:8080/   # -> real Python app",
+    expect:"<code>/api/notes</code> served by Racket (<code>{\"notes\":[...]}</code>); <code>/</code> falls through to Python (200 HTML). Flip more routes via <code>RACKET_PREFIXES=\"/api/notes,/api/foo\"</code> — no recompile."},
  ]},
  {sec:"7 · Packaging (the portability win)", cases:[
    {id:"PK-1", t:"raco exe builds a working standalone binary",

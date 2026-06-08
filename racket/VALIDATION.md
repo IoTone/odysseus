@@ -49,7 +49,7 @@ Expect: no errors, `build: 0`.
 ```bash
 racket test/run-tests.rkt
 ```
-Expect: `9 success(es) 0 failure(s) 0 error(s) 9 test(s) run`.
+Expect: `10 success(es) 0 failure(s) 0 error(s) 10 test(s) run`.
 
 ### 5. Smoke the CLIs and server
 ```bash
@@ -59,6 +59,7 @@ ODYSSEUS_DATA_DIR=$(mktemp -d) racket cli/odysseus-preset.rkt list   # -> []
 racket server/main.rkt --port 8099 &             # start server
 sleep 2
 curl -s localhost:8099/health; echo              # -> {"status":"ok",...}
+curl -s localhost:8099/api/notes; echo           # -> {"notes":[...]} (real route, web shape)
 kill %1                                           # stop server
 ```
 
@@ -103,7 +104,7 @@ raco pkg install --link --batch racket\pkgs\cli-kit racket\pkgs\db-kit racket\pk
 ### 3. Build (explicit file list — PowerShell does NOT expand `*.rkt` for raco)  *(cd into racket\)*
 ```powershell
 cd racket
-raco make config.rkt cli/odysseus-logs.rkt cli/odysseus-preset.rkt cli/odysseus-signature.rkt cli/odysseus-notes.rkt cli/odysseus-sessions.rkt cli/odysseus-tasks.rkt cli/odysseus-research.rkt cli/odysseus-mcp.rkt cli/odysseus-calendar.rkt domain/notes.rkt server/main.rkt server/proxy.rkt test/run-tests.rkt
+raco make config.rkt cli/odysseus-logs.rkt cli/odysseus-preset.rkt cli/odysseus-signature.rkt cli/odysseus-notes.rkt cli/odysseus-sessions.rkt cli/odysseus-tasks.rkt cli/odysseus-research.rkt cli/odysseus-mcp.rkt cli/odysseus-calendar.rkt domain/notes.rkt domain/sessions.rkt server/main.rkt server/proxy.rkt test/run-tests.rkt
 ```
 Expect: no errors.
 
@@ -111,7 +112,7 @@ Expect: no errors.
 ```powershell
 racket test/run-tests.rkt
 ```
-Expect: `9 success(es) 0 failure(s) 0 error(s) 9 test(s) run`.
+Expect: `10 success(es) 0 failure(s) 0 error(s) 10 test(s) run`.
 
 ### 5. Smoke the CLIs and server
 ```powershell
@@ -121,7 +122,8 @@ racket cli/odysseus-preset.rkt list               # -> []
 
 Start-Process racket -ArgumentList "server/main.rkt","--port","8099"
 Start-Sleep 2
-(Invoke-WebRequest http://localhost:8099/health).Content   # -> {"status":"ok",...}
+(Invoke-WebRequest http://localhost:8099/health).Content    # -> {"status":"ok",...}
+(Invoke-WebRequest http://localhost:8099/api/notes).Content # -> {"notes":[...]} (real route)
 # stop it: Get-Process racket | Stop-Process
 ```
 
@@ -142,7 +144,7 @@ For each OS, the four things that matter most:
 |---|---|---|
 | A | `racket --version` | `v9.2 [cs]` |
 | B | Build (step 3) | no errors |
-| C | Test suite (step 4) | `9 success(es) 0 failure(s)` |
+| C | Test suite (step 4) | `10 success(es) 0 failure(s)` |
 | D | `raco exe` binary runs (step 6) | prints version, **no crash** |
 
 If anything fails, copy the terminal output (especially C and D) and send it
