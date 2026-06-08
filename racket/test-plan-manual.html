@@ -116,7 +116,7 @@
 export PATH="$HOME/racket/bin:$PATH"
 raco pkg install --auto --skip-installed web-server-lib db-lib
 raco pkg install --link racket/pkgs/cli-kit racket/pkgs/db-kit racket/pkgs/web-kit
-cd racket && raco make config.rkt cli/odysseus-logs.rkt cli/odysseus-preset.rkt cli/odysseus-signature.rkt cli/odysseus-notes.rkt cli/odysseus-sessions.rkt cli/odysseus-tasks.rkt server/main.rkt test/run-tests.rkt</pre>
+cd racket && raco make config.rkt cli/*.rkt domain/*.rkt server/*.rkt test/*.rkt</pre>
     <p style="color:var(--muted);margin:.6em 0 0">
       On <b>macOS / Windows</b>, follow the per-OS runbook in <code>VALIDATION.md</code>
       (PowerShell needs the explicit file list above — it won't expand <code>*.rkt</code>).
@@ -139,12 +139,12 @@ const PLAN = [
     steps:["Run <code>racket/install-racket.sh</code> (or confirm <code>~/racket/bin/racket</code> exists).",
            "Run <code>racket --version</code>."],
     expect:"Prints “Welcome to Racket v9.2 [cs].” — and <code>which racket</code> points at <code>~/racket/bin/racket</code> (not Homebrew)."},
-   {id:"TB-2", t:"All modules byte-compile cleanly", cmd:"raco make config.rkt cli/odysseus-logs.rkt cli/odysseus-preset.rkt cli/odysseus-signature.rkt cli/odysseus-notes.rkt cli/odysseus-sessions.rkt cli/odysseus-tasks.rkt server/main.rkt test/run-tests.rkt && echo OK",
+   {id:"TB-2", t:"All modules byte-compile cleanly", cmd:"raco make config.rkt cli/*.rkt domain/*.rkt server/*.rkt test/*.rkt && echo OK",
     expect:"No errors; prints <code>OK</code>. (A clean <code>compiled/</code> appears next to each source.)"},
  ]},
  {sec:"2 · Automated suite", cases:[
    {id:"AT-1", t:"Portable rackunit suite is green", cmd:"racket test/run-tests.rkt",
-    expect:"<code>6 success(es) 0 failure(s) 0 error(s) 6 test(s) run</code>. Exit code 0."},
+    expect:"<code>9 success(es) 0 failure(s) 0 error(s) 9 test(s) run</code>. Exit code 0."},
  ]},
  {sec:"3 · CLI — odysseus-logs", cases:[
    {id:"LG-1", t:"list shows app + tmux logs (compact JSON when piped)",

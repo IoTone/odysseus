@@ -64,12 +64,17 @@ package so the *option* exists and the app's web glue is cleanly isolated.
 ### Phase 1 — The CLIs (`scripts/` → `racket/cli/`)  ← current
 ~30 `odysseus-*` tools, ~4k LOC. Self-contained, lowest risk, perfect for
 hardening the toolchain. Order by dependency weight:
-1. **Filesystem-only** (no DB/HTTP): `odysseus-logs` ✅, `odysseus-preset` ✅.
+1. **Filesystem-only** (no DB/HTTP): `odysseus-logs` ✅, `odysseus-preset` ✅,
+   `odysseus-research` ✅ (JSON blobs in `data/deep_research/`).
 2. **DB-backed** (SQLite via the `db-kit` package ✅): `odysseus-signature` ✅,
-   `odysseus-notes` ✅, `odysseus-sessions` ✅, `odysseus-tasks` ✅. All raw SQL
-   against the same `DATABASE_URL`; `db-kit` carries shared value/`DateTime`
-   coercion so new ones are quick.
-3. **HTTP-client** (hit the running app): `odysseus-mail`, `odysseus-calendar`, `odysseus-research`, `odysseus-mcp`.
+   `odysseus-notes` ✅, `odysseus-sessions` ✅, `odysseus-tasks` ✅,
+   `odysseus-mcp` ✅, `odysseus-calendar` ✅ (date-range + `is_utc` Z-suffix).
+   All raw SQL against the same `DATABASE_URL`; `db-kit` carries shared
+   value/`DateTime` coercion so new ones are quick.
+   (Note: the "HTTP-client" tier turned out to be a misnomer — none of these hit
+   HTTP; they read the DB or files directly.)
+- **Deferred:** `odysseus-mail` wraps `routes/email_helpers` + IMAP pollers (the
+  email subsystem), not a thin port → with the Phase-2/3 email work.
 - Port the git-style dispatcher (`scripts/odysseus`) last; it just execs siblings.
 - **Reclassified to Phase 2 (not thin DB ports — they wrap stateful subsystems):**
   `odysseus-personal` (wraps `src/personal_docs` RAG index), `odysseus-memory`
@@ -97,6 +102,15 @@ proxy forwards each path to Python or Racket; flip one route at a time.
 - Concurrency: FastAPI `async` → Racket green threads + `sync` events (budget a
   real re-think; one route end-to-end first as a spike).
 - **Exit gate:** existing `tests/` (462 files) pass against the Racket route via the proxy.
+
+**✅ Spike done (proof of pattern):**
+- `domain/notes.rkt` — notes serialization + list query, shared by the CLI and
+  the server (one source of truth; CLI and HTTP can't drift).
+- `server/main.rkt` serves real `GET /api/notes` from the DB via `domain/notes`.
+- `server/proxy.rkt` — minimal strangler proxy: `/api/notes` → Racket, everything
+  else → Python (with a Caddy equivalent in its header). Verified end-to-end:
+  through the proxy, `/api/notes` returns the Racket result and other paths fall
+  through to a Python backend. This is the template for flipping routes one by one.
 
 #### Decision: no libuv FFI — Racket's runtime already IS the event loop
 FastAPI's async comes from ASGI → uvicorn → **uvloop (libuv)**. The tempting
