@@ -13,7 +13,26 @@
 
 (require db racket/string)
 
-(provide sqlite-path open-sqlite call-with-sqlite)
+(provide sqlite-path open-sqlite call-with-sqlite
+         sql-or-empty sql-or-null sql->str sql->bool sql->int sqlite-datetime->iso)
+
+;; ---- SQL value coercion helpers (shared by DB-backed CLIs) -----------------
+(define (sql-or-empty v) (if (sql-null? v) "" v))         ; NULL -> ""
+(define (sql-or-null  v) (if (sql-null? v) 'null v))      ; NULL -> JSON null
+(define (sql->str v) (if (sql-null? v) "" (format "~a" v)))
+(define (sql->bool v) (cond [(sql-null? v) #f]
+                            [(number? v) (not (zero? v))]
+                            [else (and v #t)]))
+(define (sql->int v) (cond [(sql-null? v) 0] [(number? v) v] [else 0]))
+
+;; SQLAlchemy stores DateTime in SQLite as TEXT "YYYY-MM-DD HH:MM:SS[.ffffff]".
+;; Match Python's datetime.isoformat(): space->T, and drop a zero ".000000"
+;; fraction (isoformat omits microseconds when they're zero). NULL -> "".
+(define (sqlite-datetime->iso v)
+  (cond [(sql-null? v) ""]
+        [(not (string? v)) (format "~a" v)]
+        [else (regexp-replace #rx"\\.000000$"
+                              (regexp-replace #rx" " v "T") "")]))
 
 ;; Resolve a sqlite URL to a filesystem path, mirroring SQLAlchemy /
 ;; core/database.py's `DATABASE_URL.replace("sqlite:///", "")`. Relative paths
