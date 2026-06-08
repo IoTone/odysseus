@@ -67,6 +67,36 @@ proxy forwards each path to Python or Racket; flip one route at a time.
   real re-think; one route end-to-end first as a spike).
 - **Exit gate:** existing `tests/` (462 files) pass against the Racket route via the proxy.
 
+#### Decision: no libuv FFI — Racket's runtime already IS the event loop
+FastAPI's async comes from ASGI → uvicorn → **uvloop (libuv)**. The tempting
+move is to FFI libuv into Racket for the same. We will **not**, because:
+
+- **Racket already has it.** Racket CS runs M green threads over its own evented
+  scheduler; blocking I/O (`tcp`, `sleep`, `sync`) parks the *green* thread and
+  runs others on the same OS thread — the exact uvloop behavior. Proven in
+  `racket/server/concurrency-demo.rkt`: **40 concurrent I/O-bound connections in
+  ~0.5s (≈38× over sequential) on one OS thread**, zero native deps.
+- **libuv FFI fights the portability goal.** It's a C library that must be
+  built/linked per platform (Win/Mac/Linux/BSD) — reintroducing exactly the
+  native-build pain `raco exe` just removed. Racket's I/O is pure-runtime,
+  portable everywhere Racket runs.
+- **It's research-grade for negative ROI.** Bridging libuv's callback loop into
+  Racket CS means running libuv on a dedicated OS thread and marshaling
+  completions back through Racket's event system (foreign callbacks into CS are
+  delicate w.r.t. the GC/scheduler). Large, fragile, and pointless on an
+  **I/O-bound glue layer** — the heavy compute already lives in the Python ML
+  microservices and external LLM APIs, not here.
+
+**So the Racket HTTP layer needs no FFI.** Two native options, both portable:
+1. `web-server` (batteries: dispatch, cookies, etc.) — what `server/main.rkt` uses.
+2. A lean server on `racket/tcp` + `sync` for maximum control/perf.
+
+We start on (1) and drop to (2) only if a measured need appears.
+
+**And FastAPI fully disappears.** End state: the web layer is 100% Racket; the
+only retained Python is ML/PDF microservices, which need a *minimal* HTTP server
+(e.g. stdlib `http.server`), not FastAPI either.
+
 ### Phase 4 — Desktop client (`racket/gui`)
 The payoff: a native desktop app on the shared Phase-2 core, replacing the web
 frontend for desktop users. Cross-platform native widgets, no Electron.
