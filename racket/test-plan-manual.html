@@ -114,8 +114,9 @@
     <p>Install the official Racket (not Homebrew on Linux), put it on PATH, install deps, and build:</p>
     <pre><span class="copy">copy</span>racket/install-racket.sh
 export PATH="$HOME/racket/bin:$PATH"
-cd racket && raco pkg install --auto --batch --skip-installed web-server-lib db-lib
-raco make cli/*.rkt server/*.rkt core/*.rkt test/*.rkt</pre>
+raco pkg install --auto --skip-installed web-server-lib db-lib
+raco pkg install --link racket/pkgs/cli-kit racket/pkgs/db-kit racket/pkgs/web-kit
+cd racket && raco make config.rkt cli/*.rkt server/*.rkt test/*.rkt</pre>
     <p style="color:var(--muted);margin:.6em 0 0">
       All commands below assume you are in the <code>racket/</code> directory with that PATH set,
       unless a step says otherwise. <b>Pass</b> only when the actual output matches <b>Expected</b>.
@@ -134,7 +135,7 @@ const PLAN = [
     steps:["Run <code>racket/install-racket.sh</code> (or confirm <code>~/racket/bin/racket</code> exists).",
            "Run <code>racket --version</code>."],
     expect:"Prints “Welcome to Racket v9.2 [cs].” — and <code>which racket</code> points at <code>~/racket/bin/racket</code> (not Homebrew)."},
-   {id:"TB-2", t:"All modules byte-compile cleanly", cmd:"raco make cli/*.rkt server/*.rkt core/*.rkt test/*.rkt && echo OK",
+   {id:"TB-2", t:"All modules byte-compile cleanly", cmd:"raco make config.rkt cli/*.rkt server/*.rkt test/*.rkt && echo OK",
     expect:"No errors; prints <code>OK</code>. (A clean <code>compiled/</code> appears next to each source.)"},
  ]},
  {sec:"2 · Automated suite", cases:[

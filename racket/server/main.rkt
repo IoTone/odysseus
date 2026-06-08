@@ -1,40 +1,26 @@
 #lang racket/base
 
-;; server/main.rkt — minimal Racket web-server.
+;; server/main.rkt — minimal Racket web-server (strangler-fig seed).
 ;;
-;; This is the strangler-fig seed: a tiny HTTP service that will sit alongside
-;; the Python FastAPI app behind a reverse proxy, taking over routes one at a
-;; time. For now it serves a single health endpoint so we can prove the server,
-;; JSON, and packaging story end-to-end.
+;; Sits alongside the Python app behind a reverse proxy, taking over routes one
+;; at a time. HTTP plumbing comes from the web-kit package; only the routes are
+;; app code. Async/event handling is the Racket runtime's — see
+;; concurrency-demo.rkt (no libuv/FFI needed).
 ;;
-;;   racket server/main.rkt                 # serve on 127.0.0.1:8099
-;;   racket server/main.rkt --port 8100
-;;
+;;   racket server/main.rkt --port 8099
 ;;   curl localhost:8099/health  -> {"status":"ok","service":"odysseus-racket",...}
 
-(require web-server/servlet-env
-         web-server/http
-         net/url
-         json
-         racket/cmdline
+(require racket/cmdline
          racket/string
-         "../cli/common.rkt")
-
-(define (json-response jsx #:code [code 200])
-  (response/output
-   #:code code
-   #:mime-type #"application/json; charset=utf-8"
-   (lambda (out) (write-json jsx out))))
-
-(define (request-path req)
-  (map path/param-path (url-path (request-uri req))))
+         web-kit
+         "../config.rkt")
 
 (define (handle req)
   (case (request-path req)
     [(("health"))
      (json-response (hasheq 'status  "ok"
                             'service "odysseus-racket"
-                            'version version))]
+                            'version app-version))]
     [else
      (json-response (hasheq 'error "not found"
                             'path  (string-join (request-path req) "/"))
@@ -47,12 +33,7 @@
    #:once-each
    [("--port") p "Port to listen on (default 8099)"
                (set! port (string->number p))]
-   #:args ()
-   (void))
+   #:args () (void))
   (printf "odysseus-racket server ~a listening on http://127.0.0.1:~a\n"
-          version port)
-  (serve/servlet handle
-                 #:servlet-regexp #rx""        ; route everything to handle
-                 #:port port
-                 #:listen-ip "127.0.0.1"
-                 #:command-line? #t))           ; don't pop a browser
+          app-version port)
+  (serve handle #:port port))

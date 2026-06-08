@@ -50,9 +50,12 @@ pipeline {
               export PATH="$RACKET_PREFIX/bin:$PATH"
               racket --version
 
-              # Deps + byte-compile (compile failures fail the build).
-              ( cd racket && raco pkg install --auto --batch --skip-installed web-server-lib db-lib || true )
-              ( cd racket && raco make cli/*.rkt server/*.rkt core/*.rkt test/*.rkt )
+              # Deps: catalog libs + the local spin-out packages (linked).
+              raco pkg install --auto --batch --skip-installed web-server-lib db-lib || true
+              raco pkg install --link --batch --skip-installed \
+                racket/pkgs/cli-kit racket/pkgs/db-kit racket/pkgs/web-kit || true
+              # Byte-compile (compile failures fail the build).
+              ( cd racket && raco make config.rkt cli/*.rkt server/*.rkt test/*.rkt )
 
               # Portable behavior suite.
               ( cd racket && racket test/run-tests.rkt )
@@ -84,8 +87,10 @@ pipeline {
               # macOS: Homebrew is the tried-and-true path.
               command -v racket >/dev/null 2>&1 || brew install minimal-racket
               racket --version
-              ( cd racket && raco pkg install --auto --batch --skip-installed web-server-lib db-lib || true )
-              ( cd racket && raco make cli/*.rkt server/*.rkt core/*.rkt test/*.rkt )
+              raco pkg install --auto --batch --skip-installed web-server-lib db-lib || true
+              raco pkg install --link --batch --skip-installed \
+                racket/pkgs/cli-kit racket/pkgs/db-kit racket/pkgs/web-kit || true
+              ( cd racket && raco make config.rkt cli/*.rkt server/*.rkt test/*.rkt )
               ( cd racket && racket test/run-tests.rkt )
               mkdir -p racket/dist
               for t in odysseus-logs odysseus-preset odysseus-signature; do
@@ -114,9 +119,10 @@ pipeline {
                 $env:Path = "C:\\racket;" + $env:Path
               }
               racket --version
-              Push-Location racket
               raco pkg install --auto --batch --skip-installed web-server-lib db-lib
-              raco make cli/*.rkt server/*.rkt core/*.rkt test/*.rkt
+              raco pkg install --link --batch --skip-installed racket\pkgs\cli-kit racket\pkgs\db-kit racket\pkgs\web-kit
+              Push-Location racket
+              raco make config.rkt cli/*.rkt server/*.rkt test/*.rkt
               racket test/run-tests.rkt
               New-Item -ItemType Directory -Force -Path dist | Out-Null
               foreach ($t in @("odysseus-logs","odysseus-preset","odysseus-signature")) {

@@ -22,7 +22,8 @@
          racket/port
          racket/string
          racket/system
-         "common.rkt")
+         cli-kit
+         "../config.rkt")
 
 (define app-logs  (build-path repo-root "logs"))
 (define tmux-logs (string->path "/tmp/odysseus-tmux"))
@@ -174,4 +175,4 @@
     [else (fail (format "unknown subcommand: ~a" cmd) #:code 2)]))
 
 (module+ main
-  (run "odysseus-logs" dispatch))
+  (run "odysseus-logs" app-version dispatch))

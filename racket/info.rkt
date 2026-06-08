@@ -1,23 +1,18 @@
 #lang info
 
-;; Package metadata for the Racket port of Odysseus.
-;; Mirrors the role of requirements.txt / pyproject.toml on the Python side.
+;; The Odysseus app itself (CLIs under cli/, server under server/, shared
+;; config.rkt). This is NOT a library to publish — it depends on the
+;; spin-out-able packages under pkgs/ (cli-kit, db-kit, web-kit).
 ;;
-;;   raco pkg install --auto    # from this directory, pulls deps
-;;   raco make cli/*.rkt server/*.rkt   # byte-compile
-;;   raco exe cli/odysseus-logs.rkt     # standalone binary (the packaging win)
+;; Dev/CI setup:
+;;   raco pkg install --link pkgs/cli-kit pkgs/db-kit pkgs/web-kit
+;;   raco make config.rkt cli/*.rkt server/*.rkt test/*.rkt
+;;   raco exe -o dist/odysseus-logs cli/odysseus-logs.rkt   # standalone binary
 
 (define collection "odysseus")
 (define version "0.1.0")
 
-;; Runtime deps. base/json are in minimal-racket already; the rest are the
-;; packages we `raco pkg install`'d. Keep this list in sync as the port grows.
-(define deps
-  '("base"
-    "web-server-lib"
-    "db-lib"))
+;; External catalog deps (the local pkgs/* are installed via --link, above).
+(define deps '("base" "web-server-lib" "db-lib"))
 
-(define build-deps
-  '("racket-doc"))
-
-(define pkg-desc "Odysseus — Racket port (backend + CLIs)")
+(define pkg-desc "Odysseus — Racket port (app: CLIs + server)")

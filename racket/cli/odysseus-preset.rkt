@@ -13,7 +13,8 @@
          racket/file
          racket/list
          racket/string
-         "common.rkt")
+         cli-kit
+         "../config.rkt")
 
 (define (presets-path) (build-path (data-dir) "presets.json"))
 
@@ -127,4 +128,4 @@
     [else (fail (format "unknown subcommand: ~a" cmd) #:code 2)]))
 
 (module+ main
-  (run "odysseus-preset" dispatch))
+  (run "odysseus-preset" app-version dispatch))

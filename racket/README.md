@@ -6,13 +6,25 @@ The strangler-fig Racket port of the Python backend. See
 
 ## Layout
 
+A monorepo of independently-installable Racket packages. The `pkgs/*` are
+generic and could each be **spun out and published** as a standalone library;
+the app depends on them.
+
     racket/
-      info.rkt              package metadata + deps (raco pkg install --auto)
+      pkgs/                         ← spin-out-able libraries (own info.rkt each)
+        cli-kit/    (require cli-kit)  generic JSON-CLI scaffolding: emit/fail/run
+        db-kit/     (require db-kit)   generic sqlite DATABASE_URL → connection
+        web-kit/    (require web-kit)  thin JSON-API wrapper over web-server
+      config.rkt                    app-only glue (repo paths, version, app db)
       cli/
-        common.rkt          shared CLI scaffolding (port of scripts/_lib/cli.py)
-        odysseus-logs.rkt   first ported CLI (filesystem-only) ✅
+        odysseus-logs.rkt           filesystem CLI ✅
+        odysseus-preset.rkt         JSON-file CLI ✅
+        odysseus-signature.rkt      SQLite CLI ✅ (uses db-kit)
       server/
-        main.rkt            minimal web-server (health endpoint; strangler seed)
+        main.rkt                    web-server health endpoint (uses web-kit)
+        concurrency-demo.rkt        proof: native evented I/O, no libuv
+      test/run-tests.rkt            portable rackunit suite
+      info.rkt                      the app package
 
 ## Install Racket
 
@@ -28,11 +40,12 @@ The strangler-fig Racket port of the Python backend. See
 
 ## Dev workflow
 
-    # one-time: deps (already done if you ran `raco pkg install`)
-    cd racket && raco pkg install --auto
+    # one-time: catalog deps + link the local packages (editable)
+    raco pkg install --auto --skip-installed web-server-lib db-lib
+    raco pkg install --link pkgs/cli-kit pkgs/db-kit pkgs/web-kit
 
     # byte-compile (catches errors fast)
-    raco make cli/*.rkt server/*.rkt
+    cd racket && raco make config.rkt cli/*.rkt server/*.rkt test/*.rkt
 
     # run a CLI from source
     racket cli/odysseus-logs.rkt list --pretty

@@ -22,6 +22,31 @@ keeping the app shippable the entire time. Three permanent rules:
 3. **The frontend (~140k LOC vanilla JS) is untouched** by the backend port.
    Mobile→Flutter, desktop→`racket/gui` are separate later tracks.
 
+## Module structure: a monorepo of spin-out-able packages
+
+Everything generic is built as its own Racket package under `racket/pkgs/`, each
+with its own `info.rkt` and independently `raco pkg install`-able — so any of
+them can be **spun out and published** as a standalone library later, with no
+app entanglement. App-specific glue stays in the app.
+
+| Package | `(require …)` | Generic? | Could publish as |
+|---|---|---|---|
+| `racket/pkgs/cli-kit` | `cli-kit` | yes | "tiny JSON-CLI toolkit" |
+| `racket/pkgs/db-kit` | `db-kit` | yes | "sqlite DATABASE_URL → connection" |
+| `racket/pkgs/web-kit` | `web-kit` | yes (thin) | maybe — see note |
+| `racket/` (app) | `odysseus/*` | no | n/a (it's the app) |
+
+Rule: a thing graduates to `pkgs/` when it has **zero Odysseus knowledge**.
+`config.rkt` (repo paths, app version, app db) is the one app-branded shared
+module; the CLIs/server require the kits + `config.rkt`.
+
+On `web-kit` and "is there something better out there": the **server** is
+Racket's built-in `web-server` — don't reinvent it. `web-kit` is only a thin
+JSON-API wrapper to cut boilerplate. If we ever want a batteries framework
+(sessions, migrations, CSRF, components), adopt **`koyo`** rather than growing
+`web-kit`. So `web-kit` may never be worth publishing — that's fine; it stays a
+package so the *option* exists and the app's web glue is cleanly isolated.
+
 ## Phases
 
 ### Phase 0 — Toolchain & scaffold ✅ (done in pass 1)

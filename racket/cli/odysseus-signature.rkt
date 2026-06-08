@@ -14,8 +14,8 @@
          net/base64
          racket/file
          racket/string
-         "../core/db.rkt"
-         "common.rkt")
+         cli-kit
+         "../config.rkt")
 
 ;; ---- SQL value helpers -----------------------------------------------------
 
@@ -44,7 +44,7 @@
 
 (define (cmd-list pretty?)
   (define rows
-    (call-with-db #:mode 'read-only
+    (call-with-app-db #:mode 'read-only
       (lambda (conn)
         (query-rows conn
           (string-append
@@ -65,7 +65,7 @@
 
 (define (cmd-show id pretty?)
   (define r
-    (call-with-db #:mode 'read-only
+    (call-with-app-db #:mode 'read-only
       (lambda (conn)
         (define rs (query-rows conn
           (string-append
@@ -86,7 +86,7 @@
 
 (define (cmd-export id out-path pretty?)
   (define data-png
-    (call-with-db #:mode 'read-only
+    (call-with-app-db #:mode 'read-only
       (lambda (conn)
         (define rs (query-rows conn "SELECT data_png FROM signatures WHERE id = ?" id))
         (cond [(null? rs) (fail (format "no signature with id ~s" id))]
@@ -101,7 +101,7 @@
         #:pretty? pretty?))
 
 (define (cmd-delete id pretty?)
-  (call-with-db
+  (call-with-app-db
    (lambda (conn)
      ;; existence check, then delete (db's query-exec doesn't surface rowcount)
      (define exists?
@@ -138,4 +138,4 @@
     [else (fail (format "unknown subcommand: ~a" cmd) #:code 2)]))
 
 (module+ main
-  (run "odysseus-signature" dispatch))
+  (run "odysseus-signature" app-version dispatch))
