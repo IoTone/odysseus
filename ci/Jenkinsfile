@@ -56,7 +56,7 @@ pipeline {
               raco pkg install --link --batch --skip-installed \
                 racket/pkgs/cli-kit racket/pkgs/db-kit racket/pkgs/web-kit || true
               # Byte-compile (explicit entry points — cross-shell safe).
-              ( cd racket && raco make config.rkt cli/odysseus-logs.rkt cli/odysseus-preset.rkt cli/odysseus-signature.rkt server/main.rkt test/run-tests.rkt )
+              ( cd racket && raco make config.rkt cli/odysseus-logs.rkt cli/odysseus-preset.rkt cli/odysseus-signature.rkt cli/odysseus-notes.rkt cli/odysseus-sessions.rkt cli/odysseus-tasks.rkt server/main.rkt test/run-tests.rkt )
 
               # Portable behavior suite.
               ( cd racket && racket test/run-tests.rkt )
@@ -70,7 +70,7 @@ pipeline {
 
               # Standalone binaries (the packaging deliverable).
               mkdir -p racket/dist
-              for t in odysseus-logs odysseus-preset odysseus-signature; do
+              for t in odysseus-logs odysseus-preset odysseus-signature odysseus-notes odysseus-sessions odysseus-tasks; do
                 raco exe -o "racket/dist/$t" "racket/cli/$t.rkt"
               done
             '''
@@ -91,10 +91,10 @@ pipeline {
               raco pkg install --auto --batch --skip-installed web-server-lib db-lib || true
               raco pkg install --link --batch --skip-installed \
                 racket/pkgs/cli-kit racket/pkgs/db-kit racket/pkgs/web-kit || true
-              ( cd racket && raco make config.rkt cli/odysseus-logs.rkt cli/odysseus-preset.rkt cli/odysseus-signature.rkt server/main.rkt test/run-tests.rkt )
+              ( cd racket && raco make config.rkt cli/odysseus-logs.rkt cli/odysseus-preset.rkt cli/odysseus-signature.rkt cli/odysseus-notes.rkt cli/odysseus-sessions.rkt cli/odysseus-tasks.rkt server/main.rkt test/run-tests.rkt )
               ( cd racket && racket test/run-tests.rkt )
               mkdir -p racket/dist
-              for t in odysseus-logs odysseus-preset odysseus-signature; do
+              for t in odysseus-logs odysseus-preset odysseus-signature odysseus-notes odysseus-sessions odysseus-tasks; do
                 raco exe -o "racket/dist/$t" "racket/cli/$t.rkt"
               done
             '''
@@ -123,10 +123,10 @@ pipeline {
               raco pkg install --auto --batch --skip-installed web-server-lib db-lib
               raco pkg install --link --batch --skip-installed racket\pkgs\cli-kit racket\pkgs\db-kit racket\pkgs\web-kit
               Push-Location racket
-              raco make config.rkt cli/odysseus-logs.rkt cli/odysseus-preset.rkt cli/odysseus-signature.rkt server/main.rkt test/run-tests.rkt
+              raco make config.rkt cli/odysseus-logs.rkt cli/odysseus-preset.rkt cli/odysseus-signature.rkt cli/odysseus-notes.rkt cli/odysseus-sessions.rkt cli/odysseus-tasks.rkt server/main.rkt test/run-tests.rkt
               racket test/run-tests.rkt
               New-Item -ItemType Directory -Force -Path dist | Out-Null
-              foreach ($t in @("odysseus-logs","odysseus-preset","odysseus-signature")) {
+              foreach ($t in @("odysseus-logs","odysseus-preset","odysseus-signature","odysseus-notes","odysseus-sessions","odysseus-tasks")) {
                 raco exe -o "dist/$t.exe" "cli/$t.rkt"
               }
               Pop-Location

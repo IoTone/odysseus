@@ -12,7 +12,10 @@
       systems = [ "x86_64-linux" "aarch64-linux" "x86_64-darwin" "aarch64-darwin" ];
       forAll = f: nixpkgs.lib.genAttrs systems (system: f (import nixpkgs { inherit system; }));
 
-      entrypoints = [ "odysseus-logs" "odysseus-preset" "odysseus-signature" ];
+      entrypoints = [
+        "odysseus-logs" "odysseus-preset" "odysseus-signature"
+        "odysseus-notes" "odysseus-sessions" "odysseus-tasks"
+      ];
     in
     {
       # ---- packages: `nix build` / `nix profile install` ---------------------
@@ -30,6 +33,7 @@
             export PLTCOLLECTS="$PWD/pkgs:"
             raco make config.rkt \
               cli/odysseus-logs.rkt cli/odysseus-preset.rkt cli/odysseus-signature.rkt \
+              cli/odysseus-notes.rkt cli/odysseus-sessions.rkt cli/odysseus-tasks.rkt \
               server/main.rkt test/run-tests.rkt
             runHook postBuild
           '';
@@ -86,6 +90,9 @@
           odysseus-logs = mk "odysseus-logs";
           odysseus-preset = mk "odysseus-preset";
           odysseus-signature = mk "odysseus-signature";
+          odysseus-notes = mk "odysseus-notes";
+          odysseus-sessions = mk "odysseus-sessions";
+          odysseus-tasks = mk "odysseus-tasks";
           odysseus-server = mk "odysseus-server";
           default = mk "odysseus-logs";
         });
