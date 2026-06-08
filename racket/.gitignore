@@ -1,0 +1,4 @@
+# Racket build artifacts
+compiled/
+**/compiled/
+dist/
