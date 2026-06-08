@@ -75,8 +75,10 @@ build *is* a passing test run. Installed commands are wrappers around nixpkgs'
 > uses `racket/pkgs/...` paths; then you `cd racket` once and stay there for
 > build/run/test.
 
-    # one-time (from repo root): catalog deps + link the local packages (editable)
-    raco pkg install --auto --skip-installed web-server-lib db-lib
+    # one-time (from repo root): link the local packages (editable).
+    # Official Racket bundles web-server/db/rackunit — install only if missing
+    # (a minimal Racket needs them; installing a bundled pkg errors "wider scope"):
+    racket -e "(require web-server/servlet-env db rackunit)" 2>/dev/null || raco pkg install --auto web-server-lib db-lib
     raco pkg install --link racket/pkgs/cli-kit racket/pkgs/db-kit racket/pkgs/web-kit
 
     # everything else runs from racket/ — cd once:

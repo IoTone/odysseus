@@ -32,7 +32,9 @@ racket --version                     # expect: Welcome to Racket v9.2 [cs].
 
 ### 2. Install dependencies (catalog libs + our local packages)
 ```bash
-raco pkg install --auto --skip-installed web-server-lib db-lib
+# web-server/db/rackunit are bundled in full Racket — install only if missing
+# (the --cask/official build bundles them; minimal-racket does not):
+racket -e "(require web-server/servlet-env db rackunit)" 2>/dev/null || raco pkg install --auto web-server-lib db-lib
 raco pkg install --link racket/pkgs/cli-kit racket/pkgs/db-kit racket/pkgs/web-kit
 ```
 Expect: `raco setup` output ending without errors.
@@ -102,9 +104,13 @@ racket --version                          # expect: Welcome to Racket v9.2 [cs].
 
 ### 2. Install dependencies
 ```powershell
-raco pkg install --auto --batch --skip-installed web-server-lib db-lib
+# Official Racket already bundles web-server/db/rackunit — install ONLY if missing
+# (installing a bundled package errors with "installed in a wider scope"):
+racket -e "(require web-server/servlet-env db rackunit)" 2>$null
+if ($LASTEXITCODE -ne 0) { raco pkg install --auto --batch web-server-lib db-lib }
 raco pkg install --link --batch racket\pkgs\cli-kit racket\pkgs\db-kit racket\pkgs\web-kit
 ```
+(Or just run `racket\validate-windows.bat`, which handles this.)
 
 ### 3. Build (explicit file list — PowerShell does NOT expand `*.rkt` for raco)  *(cd into racket\)*
 ```powershell
