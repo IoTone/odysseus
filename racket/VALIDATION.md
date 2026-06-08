@@ -58,10 +58,11 @@ Expect: `10 success(es) 0 failure(s) 0 error(s) 10 test(s) run`.
 racket cli/odysseus-logs.rkt --version           # -> odysseus-logs 0.1.0
 ODYSSEUS_DATA_DIR=$(mktemp -d) racket cli/odysseus-preset.rkt list   # -> []
 
+racket test/seed-db.rkt                          # create app schema + sample rows
 racket server/main.rkt --port 8099 &             # start server
 sleep 2
 curl -s localhost:8099/health; echo              # -> {"status":"ok",...}
-curl -s localhost:8099/api/notes; echo           # -> {"notes":[...]} (real route, web shape)
+curl -s localhost:8099/api/notes; echo           # -> {"notes":[...]} (seeded; web shape)
 kill %1                                           # stop server
 ```
 
@@ -115,7 +116,7 @@ raco pkg install --link --batch racket\pkgs\cli-kit racket\pkgs\db-kit racket\pk
 ### 3. Build (explicit file list — PowerShell does NOT expand `*.rkt` for raco)  *(cd into racket\)*
 ```powershell
 cd racket
-raco make config.rkt cli/odysseus-logs.rkt cli/odysseus-preset.rkt cli/odysseus-signature.rkt cli/odysseus-notes.rkt cli/odysseus-sessions.rkt cli/odysseus-tasks.rkt cli/odysseus-research.rkt cli/odysseus-mcp.rkt cli/odysseus-calendar.rkt domain/notes.rkt domain/sessions.rkt server/main.rkt server/proxy.rkt test/run-tests.rkt
+raco make config.rkt cli/odysseus-logs.rkt cli/odysseus-preset.rkt cli/odysseus-signature.rkt cli/odysseus-notes.rkt cli/odysseus-sessions.rkt cli/odysseus-tasks.rkt cli/odysseus-research.rkt cli/odysseus-mcp.rkt cli/odysseus-calendar.rkt domain/notes.rkt domain/sessions.rkt server/main.rkt server/proxy.rkt test/run-tests.rkt test/seed-db.rkt
 ```
 Expect: no errors.
 
@@ -131,10 +132,11 @@ racket cli/odysseus-logs.rkt --version            # -> odysseus-logs 0.1.0
 $env:ODYSSEUS_DATA_DIR = (New-Item -ItemType Directory -Path "$env:TEMP\odyd" -Force).FullName
 racket cli/odysseus-preset.rkt list               # -> []
 
+racket test/seed-db.rkt                                      # create schema + sample rows
 Start-Process racket -ArgumentList "server/main.rkt","--port","8099"
 Start-Sleep 2
 (Invoke-WebRequest http://localhost:8099/health).Content    # -> {"status":"ok",...}
-(Invoke-WebRequest http://localhost:8099/api/notes).Content # -> {"notes":[...]} (real route)
+(Invoke-WebRequest http://localhost:8099/api/notes).Content # -> {"notes":[...]} (seeded)
 # stop it: Get-Process racket | Stop-Process
 ```
 

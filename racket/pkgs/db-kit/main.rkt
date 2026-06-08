@@ -50,7 +50,9 @@
 (define (open-sqlite path #:mode [mode 'read/write] #:create-missing? [create? #f])
   (unless (or create? (file-exists? path))
     (error 'open-sqlite "database not found at ~a" path))
-  (sqlite3-connect #:database path #:mode mode))
+  ;; sqlite's 'read/write and 'read-only both REQUIRE the file to exist; only
+  ;; 'create makes a missing file. So when creating is allowed, use 'create.
+  (sqlite3-connect #:database path #:mode (if create? 'create mode)))
 
 (define (call-with-sqlite path proc
                           #:mode [mode 'read/write]

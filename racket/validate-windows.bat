@@ -35,7 +35,7 @@ pushd "%SCRIPT_DIR%" || exit /b 1
 
 echo.
 echo == 2/4  byte-compile (explicit list; cmd/PowerShell don't expand *.rkt) ==
-raco make config.rkt cli/odysseus-logs.rkt cli/odysseus-preset.rkt cli/odysseus-signature.rkt cli/odysseus-notes.rkt cli/odysseus-sessions.rkt cli/odysseus-tasks.rkt cli/odysseus-research.rkt cli/odysseus-mcp.rkt cli/odysseus-calendar.rkt domain/notes.rkt domain/sessions.rkt server/main.rkt server/proxy.rkt test/run-tests.rkt || (echo [X] BUILD FAILED & popd & exit /b 1)
+raco make config.rkt cli/odysseus-logs.rkt cli/odysseus-preset.rkt cli/odysseus-signature.rkt cli/odysseus-notes.rkt cli/odysseus-sessions.rkt cli/odysseus-tasks.rkt cli/odysseus-research.rkt cli/odysseus-mcp.rkt cli/odysseus-calendar.rkt domain/notes.rkt domain/sessions.rkt server/main.rkt server/proxy.rkt test/run-tests.rkt test/seed-db.rkt || (echo [X] BUILD FAILED & popd & exit /b 1)
 echo [ok] build clean
 
 echo.
