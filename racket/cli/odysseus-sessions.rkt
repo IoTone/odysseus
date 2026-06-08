@@ -11,55 +11,26 @@
 (require db
          racket/string
          cli-kit
-         db-kit
+         "../domain/sessions.rkt"   ; sessions-cols, session->jsexpr, list-sessions (shared w/ server)
          "../config.rkt")
-
-(define cols
-  (string-append "id,name,model,endpoint_url,owner,folder,archived,rag,is_important,"
-                 "message_count,total_input_tokens,total_output_tokens,last_accessed,created_at"))
-
-(define (serialize r)
-  (hasheq 'id                  (vector-ref r 0)
-          'name                (vector-ref r 1)
-          'model               (vector-ref r 2)
-          'endpoint_url        (vector-ref r 3)
-          'owner               (sql-or-empty (vector-ref r 4))
-          'folder              (sql-or-empty (vector-ref r 5))
-          'archived            (sql->bool (vector-ref r 6))
-          'rag                 (sql->bool (vector-ref r 7))
-          'is_important        (sql->bool (vector-ref r 8))
-          'message_count       (sql->int (vector-ref r 9))
-          'total_input_tokens  (sql->int (vector-ref r 10))
-          'total_output_tokens (sql->int (vector-ref r 11))
-          'last_accessed       (sqlite-datetime->iso (vector-ref r 12))
-          'created_at          (sqlite-datetime->iso (vector-ref r 13))))
 
 (define (fetch id)
   (call-with-app-db #:mode 'read-only
     (lambda (c)
-      (define rs (query-rows c (string-append "SELECT " cols " FROM sessions WHERE id = ?") id))
+      (define rs (query-rows c (string-append "SELECT " sessions-cols " FROM sessions WHERE id = ?") id))
       (and (pair? rs) (car rs)))))
 
 ;; ---- subcommands -----------------------------------------------------------
 
 (define (cmd-list archived-mode folder limit pretty?)
-  (define where
-    (string-append
-     (cond [(eq? archived-mode #f) "WHERE archived = 0 "]
-           [(eq? archived-mode 'only) "WHERE archived = 1 "]
-           [else ""])                              ; 'all -> no archived filter
-     (if folder (string-append (if (eq? archived-mode 'all) "WHERE " "AND ") "folder = ? ") "")))
-  (define params (if folder (list folder) '()))
-  (define sql (string-append "SELECT " cols " FROM sessions " where
-                             "ORDER BY last_accessed DESC LIMIT ?"))
-  (define rows (call-with-app-db #:mode 'read-only
-                 (lambda (c) (apply query-rows c sql (append params (list limit))))))
-  (emit (map serialize rows) #:pretty? pretty?))
+  (emit (call-with-app-db #:mode 'read-only
+          (lambda (c) (list-sessions c #:archived-mode archived-mode #:folder folder #:limit limit)))
+        #:pretty? pretty?))
 
 (define (cmd-show id pretty?)
   (define r (fetch id))
   (unless r (fail (format "no session with id ~s" id)))
-  (emit (serialize r) #:pretty? pretty?))
+  (emit (session->jsexpr r) #:pretty? pretty?))
 
 (define (set-archived id archived? pretty?)
   (call-with-app-db
@@ -74,9 +45,9 @@
   (define snap
     (call-with-app-db
      (lambda (c)
-       (define rs (query-rows c (string-append "SELECT " cols " FROM sessions WHERE id = ?") id))
+       (define rs (query-rows c (string-append "SELECT " sessions-cols " FROM sessions WHERE id = ?") id))
        (unless (pair? rs) (fail (format "no session with id ~s" id)))
-       (define s (serialize (car rs)))
+       (define s (session->jsexpr (car rs)))
        (query-exec c "DELETE FROM sessions WHERE id = ?" id)
        s)))
   (emit (hasheq 'ok #t 'deleted snap) #:pretty? pretty?))

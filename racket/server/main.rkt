@@ -12,17 +12,29 @@
 
 (require racket/cmdline
          racket/string
+         net/url
+         web-server/http       ; request-uri (web-kit provides only json-response/request-path/serve)
          web-kit
-         "../domain/notes.rkt"   ; same list-notes the CLI uses (strangler-fig)
+         "../domain/notes.rkt"      ; web shape matches routes/note_routes.py (strangler-fig)
+         "../domain/sessions.rkt"
          "../config.rkt")
 
-;; GET /api/notes — a real, DB-backed route taken over from FastAPI. Shares
-;; domain/notes with the CLI, so CLI and HTTP can never drift. See PORTING_PLAN
-;; "Phase 3" for the reverse-proxy split (server/proxy.rkt).
-(define (api-notes)
+;; Real DB-backed routes taken over from FastAPI. Each shares its domain module
+;; with the corresponding CLI, so HTTP and CLI can't drift. The reverse-proxy
+;; split lives in server/proxy.rkt (PORTING_PLAN "Phase 3").
+(define (db-route thunk)
   (with-handlers ([exn:fail? (lambda (e)
                                (json-response (hasheq 'error (exn-message e)) #:code 500))])
-    (json-response (call-with-app-db #:mode 'read-only (lambda (c) (list-notes c))))))
+    (json-response (call-with-app-db #:mode 'read-only thunk))))
+
+(define (query-ref req key)
+  (cond [(assq key (url-query (request-uri req))) => cdr] [else #f]))
+
+;; GET /api/notes[?archived=true][&label=...] — drop-in for the FastAPI route.
+(define (api-notes req)
+  (define archived? (equal? (query-ref req 'archived) "true"))
+  (define label (let ([l (query-ref req 'label)]) (and l (not (equal? l "")) l)))
+  (db-route (lambda (c) (list-notes-web c #:archived? archived? #:label label))))
 
 (define (handle req)
   (case (request-path req)
@@ -30,8 +42,8 @@
      (json-response (hasheq 'status  "ok"
                             'service "odysseus-racket"
                             'version app-version))]
-    [(("api" "notes"))
-     (api-notes)]
+    [(("api" "notes"))    (api-notes req)]
+    [(("api" "sessions")) (db-route list-sessions)]   ; CLI shape for now; see PORTING_PLAN
     [else
      (json-response (hasheq 'error "not found"
                             'path  (string-join (request-path req) "/"))

@@ -11,7 +11,8 @@
          json
          db-kit)
 
-(provide notes-cols note->jsexpr list-notes)
+(provide notes-cols note->jsexpr list-notes        ; CLI shape (Unix tool)
+         note->web-jsexpr list-notes-web)          ; HTTP shape (matches routes/note_routes.py)
 
 ;; columns selected for serialization, in fixed order
 (define notes-cols
@@ -56,3 +57,51 @@
   (define sql (string-append "SELECT " notes-cols " FROM notes " where
                              "ORDER BY pinned DESC, sort_order ASC, updated_at DESC LIMIT ?"))
   (map note->jsexpr (apply query-rows conn sql (append params (list limit)))))
+
+;; ---- HTTP shape: byte-compatible with routes/note_routes.py _note_to_dict ----
+;; All Note columns; NULL -> json null (not ""); items/ai_classification parsed
+;; (or null); timestamps isoformat-or-null; wrapped in {"notes": [...]}.
+
+(define (parse-json-or-null raw)
+  (cond [(or (sql-null? raw) (not (string? raw)) (string=? raw "")) 'null]
+        [else (with-handlers ([exn:fail? (lambda (_) 'null)]) (string->jsexpr raw))]))
+(define (dt-or-null v) (if (sql-null? v) 'null (sqlite-datetime->iso v)))
+
+(define web-cols
+  (string-append "id,owner,title,content,items,note_type,color,label,pinned,archived,"
+                 "due_date,source,session_id,sort_order,image_url,repeat,ai_classification,"
+                 "ai_content_hash,agent_session_id,created_at,updated_at"))
+
+(define (note->web-jsexpr r)
+  (hasheq 'id                (vector-ref r 0)
+          'owner             (sql-or-null (vector-ref r 1))
+          'title             (sql-or-null (vector-ref r 2))
+          'content           (sql-or-null (vector-ref r 3))
+          'items             (parse-json-or-null (vector-ref r 4))
+          'note_type         (sql-or-null (vector-ref r 5))
+          'color             (sql-or-null (vector-ref r 6))
+          'label             (sql-or-null (vector-ref r 7))
+          'pinned            (sql->bool (vector-ref r 8))
+          'archived          (sql->bool (vector-ref r 9))
+          'due_date          (sql-or-null (vector-ref r 10))
+          'source            (sql-or-null (vector-ref r 11))
+          'session_id        (sql-or-null (vector-ref r 12))
+          'sort_order        (sql->int (vector-ref r 13))
+          'image_url         (sql-or-null (vector-ref r 14))
+          'repeat            (let ([v (vector-ref r 15)]) (if (or (sql-null? v) (equal? v "")) "none" v))
+          'ai_classification (parse-json-or-null (vector-ref r 16))
+          'ai_content_hash   (sql-or-null (vector-ref r 17))
+          'agent_session_id  (sql-or-null (vector-ref r 18))
+          'created_at        (dt-or-null (vector-ref r 19))
+          'updated_at        (dt-or-null (vector-ref r 20))))
+
+;; Mirrors list_notes: archived? #f → active (pin/sort/updated order); #t →
+;; archived (updated_at desc). Optional label filter. No owner filter (auth-off).
+(define (list-notes-web conn #:archived? [archived? #f] #:label [label #f])
+  (define where (string-append "WHERE archived = " (if archived? "1" "0")
+                               (if label " AND label = ?" "")))
+  (define order (if archived? "ORDER BY updated_at DESC"
+                    "ORDER BY pinned DESC, sort_order ASC, updated_at DESC"))
+  (define sql (string-append "SELECT " web-cols " FROM notes " where " " order))
+  (define rows (if label (query-rows conn sql label) (query-rows conn sql)))
+  (hasheq 'notes (map note->web-jsexpr rows)))

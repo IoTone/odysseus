@@ -15,7 +15,8 @@
          racket/port
          racket/file
          json
-         db)
+         db
+         "../domain/notes.rkt")     ; web-shape route serializer
 
 (define racket-bin (find-executable-path "racket"))
 ;; tests are run from the racket/ dir, so CLI sources are under cli/
@@ -77,7 +78,8 @@
   (query-exec c (string-append
     "CREATE TABLE notes(id TEXT PRIMARY KEY,owner TEXT,title TEXT,content TEXT,items TEXT,"
     "note_type TEXT,color TEXT,label TEXT,pinned INT,archived INT,due_date TEXT,source TEXT,"
-    "session_id TEXT,sort_order INT,created_at TEXT,updated_at TEXT)"))
+    "session_id TEXT,sort_order INT,image_url TEXT,repeat TEXT,ai_classification TEXT,"
+    "ai_content_hash TEXT,agent_session_id TEXT,created_at TEXT,updated_at TEXT)"))
   (query-exec c (string-append
     "INSERT INTO notes(id,title,content,items,note_type,label,pinned,archived,source,sort_order,created_at,updated_at)"
     " VALUES('n1','Alpha','hello world','[{\"text\":\"a\",\"done\":false}]','note','work',1,0,'user',0,"
@@ -328,7 +330,24 @@
       (check-equal? (hash-ref (run-json (cli "odysseus-research.rkt")
                               '("delete" "rp2") #:env env-data) 'ok) #t)
       (define-values (code _o) (run-cli (cli "odysseus-research.rkt") '("show" "nope") #:env env-data))
-      (check-equal? code 1))))
+      (check-equal? code 1))
+
+    (test-case "domain/notes web shape (HTTP /api/notes drop-in)"
+      (seed-rows!)
+      (define c (sqlite3-connect #:database db-path #:mode 'read-only))
+      (define res (list-notes-web c))
+      (check-true (hash-has-key? res 'notes))               ; wrapped {"notes":[...]}
+      (define active (hash-ref res 'notes))
+      (check-equal? (map (lambda (n) (hash-ref n 'id)) active) '("n1"))  ; archived excluded
+      (define n1 (car active))
+      (check-equal? (hash-ref n1 'owner) 'null)             ; NULL -> json null (not "")
+      (check-true (list? (hash-ref n1 'items)))             ; items JSON parsed
+      (check-equal? (hash-ref n1 'image_url) 'null)         ; absent column -> null
+      (check-equal? (hash-ref n1 'repeat) "none")           ; NULL -> "none"
+      (check-true (string? (hash-ref n1 'created_at)))      ; isoformat string
+      (define arch (hash-ref (list-notes-web c #:archived? #t) 'notes))
+      (check-equal? (map (lambda (n) (hash-ref n 'id)) arch) '("n2"))
+      (disconnect c))))
 
 (module+ main
   (define n (run-tests suite))

@@ -103,14 +103,28 @@ proxy forwards each path to Python or Racket; flip one route at a time.
   real re-think; one route end-to-end first as a spike).
 - **Exit gate:** existing `tests/` (462 files) pass against the Racket route via the proxy.
 
-**✅ Spike done (proof of pattern):**
-- `domain/notes.rkt` — notes serialization + list query, shared by the CLI and
-  the server (one source of truth; CLI and HTTP can't drift).
-- `server/main.rkt` serves real `GET /api/notes` from the DB via `domain/notes`.
-- `server/proxy.rkt` — minimal strangler proxy: `/api/notes` → Racket, everything
-  else → Python (with a Caddy equivalent in its header). Verified end-to-end:
-  through the proxy, `/api/notes` returns the Racket result and other paths fall
-  through to a Python backend. This is the template for flipping routes one by one.
+**✅ Spike done — verified against the REAL app:**
+- `domain/{notes,sessions}.rkt` — list query + serialization shared by the CLI
+  and the server (one source of truth; CLI and HTTP can't drift).
+- `server/main.rkt` serves real `GET /api/notes` and `GET /api/sessions` from the DB.
+- `server/proxy.rkt` — hardened strangler proxy (forwards method, path+query,
+  request headers, body; returns upstream status + headers + body). Routes
+  `/api/notes` + `/api/sessions` → Racket, everything else → the Python app
+  (`uvicorn app:app`, default :7000). Caddy equivalent in its header.
+- **Booted the actual app** (`.venv` web stack, ChromaDB-degraded) and drove real
+  traffic through the proxy: migrated paths → Racket, `/`, `/api/models` → Python.
+
+**Key lesson surfaced — the HTTP contract ≠ the CLI's JSON.** The real route wraps
+`{"notes": [...]}`, emits *all* Note columns with `null` (not `""`/`[]`), and
+parses `items`. So `domain/notes` now carries **two** serializers: `note->jsexpr`
+(CLI tool) and `note->web-jsexpr`/`list-notes-web` (HTTP). `GET /api/notes`
+(incl. `?archived`/`?label`) is now **byte-identical to the FastAPI route**
+(diffed against the live app). `GET /api/sessions` still returns the CLI shape —
+**align it to its web contract before flipping it for real** (same pattern).
+
+To run the strangler locally: `mkdir -p data && AUTH_ENABLED=false .venv/bin/uvicorn
+app:app --port 7000`, `racket racket/server/main.rkt --port 8099`, `racket
+racket/server/proxy.rkt --port 8080`.
 
 #### Decision: no libuv FFI — Racket's runtime already IS the event loop
 FastAPI's async comes from ASGI → uvicorn → **uvloop (libuv)**. The tempting
