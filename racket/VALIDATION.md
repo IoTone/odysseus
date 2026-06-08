@@ -81,6 +81,11 @@ Expect: builds and runs. **A crash/segfault here is the key thing to report**
 >
 > **Directories:** steps 1–2 run from the **repo root**. Step 3 does `cd racket`,
 > and steps 4–6 stay in `racket\`.
+>
+> **Shortcut:** after step 1 (Racket installed + on PATH), just run
+> `racket\validate-windows.bat` — it does steps 2–4 + 6 (deps → build → suite →
+> `raco exe` + run) and stops at the first failure. Steps below are the manual
+> equivalent.
 
 ### 1. Install Racket (official build)  *(from repo root)*
 ```powershell
