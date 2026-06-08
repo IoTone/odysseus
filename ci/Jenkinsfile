@@ -19,6 +19,7 @@ pipeline {
     booleanParam(name: 'RUN_LINUX',   defaultValue: true,  description: 'Build/test on Linux (Debian/Ubuntu)')
     booleanParam(name: 'RUN_MACOS',   defaultValue: false, description: 'Build/test on macOS (needs an agent labeled "macos")')
     booleanParam(name: 'RUN_WINDOWS', defaultValue: false, description: 'Build/test on Windows (needs an agent labeled "windows")')
+    booleanParam(name: 'RUN_NIX',     defaultValue: false, description: 'Exercise the flake via nix flake check (needs an agent labeled "nix")')
   }
 
   environment {
@@ -131,6 +132,18 @@ pipeline {
               Pop-Location
             '''
             archiveArtifacts artifacts: 'racket/dist/*', fingerprint: true, allowEmptyArchive: true
+          }
+        }
+
+        // ------------------------------------------------------------------ Nix
+        stage('Nix') {
+          when { expression { return params.RUN_NIX } }
+          agent { label 'nix' }
+          steps {
+            // `nix flake check` builds packages.odysseus (its checkPhase runs the
+            // Racket test suite) + validates devShells/apps. The flake pins
+            // nixpkgs via flake.lock, so this is reproducible.
+            sh 'nix --extra-experimental-features "nix-command flakes" flake check -L'
           }
         }
       }

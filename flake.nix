@@ -73,9 +73,14 @@
         default = odysseus;
       });
 
+      # ---- checks: `nix flake check` builds the package (runs the test suite) -
+      checks = forAll (pkgs: {
+        odysseus = self.packages.${pkgs.stdenv.hostPlatform.system}.odysseus;
+      });
+
       # ---- apps: `nix run .#odysseus-logs -- list` ---------------------------
       apps = forAll (pkgs:
-        let p = self.packages.${pkgs.system}.odysseus;
+        let p = self.packages.${pkgs.stdenv.hostPlatform.system}.odysseus;
             mk = name: { type = "app"; program = "${p}/bin/${name}"; };
         in {
           odysseus-logs = mk "odysseus-logs";
