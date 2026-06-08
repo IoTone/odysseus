@@ -57,3 +57,15 @@ With the official Racket build (above), both paths are verified working:
 
 On Linux, build these with the **official** Racket, not Homebrew (the
 `minimal-racket` bottle's `raco exe` segfaults — see PORTING_PLAN.md "Packaging").
+
+## Verify locally
+
+Fastest signal → fullest:
+
+    raco make cli/*.rkt server/*.rkt core/*.rkt test/*.rkt   # 1. compiles?
+    racket test/run-tests.rkt                                # 2. behavior (3 tests)
+    ../ci/fidelity.sh                                        # 3. byte-identical to Python (from repo root)
+
+For hands-on, step-by-step verification (CLIs, server, packaging, fidelity,
+cross-platform) open **`test-plan-manual.html`** in a browser — an interactive
+checklist that saves your pass/fail/notes locally and exports a results JSON.
