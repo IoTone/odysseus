@@ -28,6 +28,9 @@ the app depends on them.
 
 ## Install Racket
 
+- **Nix / NixOS (most reproducible — recommended if you have Nix):** the
+  `flake.nix` at the repo root provides everything; no `install-racket.sh` and no
+  `raco pkg install` needed. See [Nix / NixOS](#nix--nixos) below.
 - **Linux (Debian/Ubuntu x86_64 — first target):** official Racket release,
   in-place, no sudo:
 
@@ -45,7 +48,24 @@ the app depends on them.
 **Validating on macOS / Windows?** Follow [`VALIDATION.md`](VALIDATION.md) — a
 per-OS, copy-paste runbook with expected output.
 
+## Nix / NixOS
+
+The root `flake.nix` uses nixpkgs' full Racket (web-server/db/rackunit bundled)
+and resolves the local `pkgs/*` via `PLTCOLLECTS` — so there's no `raco pkg
+install` step. From the repo root:
+
+    nix develop                      # dev shell: racket + tools, kits on PLTCOLLECTS
+    nix build .#odysseus             # build CLIs+server (runs the test suite!) -> ./result/bin
+    nix run .#odysseus-logs -- list  # run a CLI directly
+    nix profile install .#odysseus   # install odysseus-* onto your PATH
+
+`nix build` runs `racket/test/run-tests.rkt` in its `checkPhase`, so a green
+build *is* a passing test run. Installed commands are wrappers around nixpkgs'
+`racket` (no `raco exe`), which is bulletproof on Nix's read-only store.
+
 ## Dev workflow
+
+> On Nix, skip this — `nix develop` already sets everything up.
 
     # one-time: catalog deps + link the local packages (editable)
     raco pkg install --auto --skip-installed web-server-lib db-lib

@@ -132,6 +132,7 @@ Toolchain policy by OS:
 
 | OS | Toolchain | How |
 |---|---|---|
+| **Nix / NixOS (most reproducible)** | nixpkgs full Racket via `flake.nix` | `nix develop` / `nix build` / `nix run` / `nix profile install` — no install script, no `raco pkg install` |
 | **Linux (Debian/Ubuntu x86_64, first target)** | **Official Racket release** | `racket/install-racket.sh` → in-place under `~/racket`, no sudo |
 | **macOS** | Homebrew | `brew install --cask racket` (full) or `minimal-racket` |
 | Other Linux / distros | Official `natipkg` build | `RACKET_VARIANT=natipkg racket/install-racket.sh` (explored later) |

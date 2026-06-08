@@ -46,6 +46,11 @@ services/data/
 # Racket build artifacts under racket/ are handled by racket/.gitignore).
 .racket/
 
+# Nix
+result
+result-*
+.direnv/
+
 # OS
 .DS_Store
 Thumbs.db
