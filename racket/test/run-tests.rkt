@@ -334,7 +334,7 @@
 
     (test-case "domain/notes web shape (HTTP /api/notes drop-in)"
       (seed-rows!)
-      (define c (sqlite3-connect #:database db-path #:mode 'read-only))
+      (define c (sqlite3-connect #:database db-path #:mode 'read/write))
       (define res (list-notes-web c))
       (check-true (hash-has-key? res 'notes))               ; wrapped {"notes":[...]}
       (define active (hash-ref res 'notes))
@@ -347,6 +347,14 @@
       (check-true (string? (hash-ref n1 'created_at)))      ; isoformat string
       (define arch (hash-ref (list-notes-web c #:archived? #t) 'notes))
       (check-equal? (map (lambda (n) (hash-ref n 'id)) arch) '("n2"))
+      ;; owner filter (trusted-header identity)
+      (query-exec c (string-append
+        "INSERT INTO notes(id,title,note_type,owner,pinned,archived,source,sort_order,created_at,updated_at)"
+        " VALUES('nb','Bob note','note','bob',0,0,'user',0,"
+        "'2026-03-04 09:00:00.000000','2026-03-04 09:00:00.000000')"))
+      (check-equal? (map (lambda (n) (hash-ref n 'id))
+                         (hash-ref (list-notes-web c #:owner "bob") 'notes)) '("nb"))
+      (check-equal? (hash-ref (list-notes-web c #:owner "nobody") 'notes) '())
       (disconnect c))))
 
 (module+ main

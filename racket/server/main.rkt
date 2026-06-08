@@ -30,11 +30,20 @@
 (define (query-ref req key)
   (cond [(assq key (url-query (request-uri req))) => cdr] [else #f]))
 
+;; Identity is resolved by an upstream auth tier and passed as a trusted header
+;; (X-Odysseus-User) — we don't re-implement cookie/session auth here. Absent
+;; header = no owner filter (matches AUTH_ENABLED=false). See PORTING_PLAN.
+(define (header-ref req name)
+  (define v (for/or ([h (in-list (request-headers/raw req))])
+              (and (string-ci=? (bytes->string/utf-8 (header-field h)) name) (header-value h))))
+  (and v (let ([s (bytes->string/utf-8 v)]) (and (not (string=? s "")) s))))
+
 ;; GET /api/notes[?archived=true][&label=...] — drop-in for the FastAPI route.
 (define (api-notes req)
   (define archived? (equal? (query-ref req 'archived) "true"))
   (define label (let ([l (query-ref req 'label)]) (and l (not (equal? l "")) l)))
-  (db-route (lambda (c) (list-notes-web c #:archived? archived? #:label label))))
+  (define owner (header-ref req "x-odysseus-user"))
+  (db-route (lambda (c) (list-notes-web c #:archived? archived? #:label label #:owner owner))))
 
 (define (handle req)
   (case (request-path req)
@@ -43,7 +52,10 @@
                             'service "odysseus-racket"
                             'version app-version))]
     [(("api" "notes"))    (api-notes req)]
-    [(("api" "sessions")) (db-route list-sessions)]   ; CLI shape for now; see PORTING_PLAN
+    ;; NOT a web drop-in: the real /api/sessions reads the in-memory SessionManager
+    ;; + joins docs/gallery + masks model names. Kept as a CLI-shape convenience;
+    ;; do NOT route it through the proxy until reworked. See PORTING_PLAN.
+    [(("api" "sessions")) (db-route list-sessions)]
     [else
      (json-response (hasheq 'error "not found"
                             'path  (string-join (request-path req) "/"))

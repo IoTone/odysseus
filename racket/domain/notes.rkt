@@ -9,6 +9,7 @@
 
 (require db
          json
+         racket/string
          db-kit)
 
 (provide notes-cols note->jsexpr list-notes        ; CLI shape (Unix tool)
@@ -96,12 +97,17 @@
           'updated_at        (dt-or-null (vector-ref r 20))))
 
 ;; Mirrors list_notes: archived? #f → active (pin/sort/updated order); #t →
-;; archived (updated_at desc). Optional label filter. No owner filter (auth-off).
-(define (list-notes-web conn #:archived? [archived? #f] #:label [label #f])
-  (define where (string-append "WHERE archived = " (if archived? "1" "0")
-                               (if label " AND label = ?" "")))
+;; archived (updated_at desc). Optional label filter. owner filters owner==owner
+;; when supplied (= the Python route's `if user is not None`); #f = no filter
+;; (auth disabled). Identity comes from upstream as a trusted header — we do NOT
+;; re-implement auth here (see PORTING_PLAN "auth as a trusted header").
+(define (list-notes-web conn #:archived? [archived? #f] #:label [label #f] #:owner [owner #f])
+  (define clauses (append (list (string-append "archived = " (if archived? "1" "0")))
+                          (if owner '("owner = ?") '())
+                          (if label '("label = ?") '())))
+  (define params  (append (if owner (list owner) '()) (if label (list label) '())))
   (define order (if archived? "ORDER BY updated_at DESC"
                     "ORDER BY pinned DESC, sort_order ASC, updated_at DESC"))
-  (define sql (string-append "SELECT " web-cols " FROM notes " where " " order))
-  (define rows (if label (query-rows conn sql label) (query-rows conn sql)))
-  (hasheq 'notes (map note->web-jsexpr rows)))
+  (define sql (string-append "SELECT " web-cols " FROM notes WHERE "
+                             (string-join clauses " AND ") " " order))
+  (hasheq 'notes (map note->web-jsexpr (apply query-rows conn sql params))))

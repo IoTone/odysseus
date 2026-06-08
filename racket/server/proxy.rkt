@@ -36,8 +36,13 @@
 (define-values (py-host py-port)  (env-upstream "PYTHON_UPSTREAM" "127.0.0.1:7000"))
 (define-values (rkt-host rkt-port) (env-upstream "RACKET_UPSTREAM" "127.0.0.1:8099"))
 
-;; Paths the Racket server has taken over (extend as routes migrate).
-(define racket-prefixes '("/api/notes" "/api/sessions"))
+;; Paths the Racket server has taken over. Config-driven so flipping a route is
+;; ops, not a code change: RACKET_PREFIXES="/api/notes,/api/foo". Default is only
+;; the verified drop-in (/api/notes). NOTE: /api/sessions is deliberately NOT here
+;; — it's not a web drop-in yet (SessionManager-coupled). See PORTING_PLAN.
+(define racket-prefixes
+  (let ([v (getenv "RACKET_PREFIXES")])
+    (if (and v (not (string=? v ""))) (map string-trim (string-split v ",")) '("/api/notes"))))
 
 (define (pick path)
   (if (for/or ([p (in-list racket-prefixes)]) (string-prefix? path p))

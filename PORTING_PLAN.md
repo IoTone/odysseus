@@ -126,6 +126,26 @@ To run the strangler locally: `mkdir -p data && AUTH_ENABLED=false .venv/bin/uvi
 app:app --port 7000`, `racket racket/server/main.rkt --port 8099`, `racket
 racket/server/proxy.rkt --port 8080`.
 
+**Route migratability is a spectrum (the real lesson):**
+- **Pure-DB routes → clean drop-ins.** `GET /api/notes` reads only the DB; the
+  Racket route is byte-identical to FastAPI. These flip easily.
+- **Runtime-state routes → not yet.** `GET /api/sessions` reads the in-memory
+  `SessionManager` (+ joins documents/gallery, masks model names). Can't be a
+  DB-only takeover until that state is DB-derived or the manager is ported. The
+  Racket `/api/sessions` is a CLI-shape convenience only and is **not proxied**.
+- Triage each route by what it touches before promising a flip.
+
+**Auth as a trusted header (don't port the auth subsystem).** The app resolves
+identity in middleware (cookie/token → `request.state.current_user`). Rather than
+re-implement that in Racket, the migrated route reads a trusted `X-Odysseus-User`
+header set by the upstream auth tier; absent header = no owner filter (=
+`AUTH_ENABLED=false`). `GET /api/notes` honors it: verified on the real DB —
+no header → all active; `X-Odysseus-User: bob` → only bob's; unknown → none.
+
+**Flipping a route is now config, not code.** `server/proxy.rkt` reads
+`RACKET_PREFIXES` (comma-separated; default just `/api/notes`). Promote a route
+by adding its prefix once it's a verified drop-in — no recompile.
+
 #### Decision: no libuv FFI — Racket's runtime already IS the event loop
 FastAPI's async comes from ASGI → uvicorn → **uvloop (libuv)**. The tempting
 move is to FFI libuv into Racket for the same. We will **not**, because:
