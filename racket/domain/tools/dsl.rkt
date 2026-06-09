@@ -1,0 +1,74 @@
+#lang racket/base
+
+;; domain/tools/dsl.rkt — a `define-tool` DSL that emits OpenAI-compatible
+;; function tool schemas.
+;;
+;; This is the Phase-2 "gets better in Racket" piece: src/tool_schemas.py is a
+;; 1372-line hand-maintained list of nested dicts. Here a tool is a declaration —
+;;
+;;   (define-tool grep
+;;     #:description "Search file contents…"
+;;     (pattern string #:description "Regular expression to search for")
+;;     (path    string #:optional #:description "Directory or file (optional)")
+;;     (max_results integer #:optional #:description "Max matches (optional)"))
+;;
+;; — and the macro produces the exact JSON the LLM sees. Required-by-default;
+;; #:optional drops a param from "required". #:enum and #:items supported.
+
+(require json
+         (for-syntax racket/base syntax/parse))
+
+(provide define-tool tool->jsexpr all-tool-schemas reset-tools! tool-ref)
+
+;; ---- registry --------------------------------------------------------------
+(define *tools* (box '()))                       ; list of (cons name jsexpr), reversed
+(define (reset-tools!) (set-box! *tools* '()))
+(define (register! name jsx) (set-box! *tools* (cons (cons name jsx) (unbox *tools*))) jsx)
+(define (all-tool-schemas) (map cdr (reverse (unbox *tools*))))
+(define (tool-ref name)                          ; fetch one tool's jsexpr by name
+  (cond [(assoc name (unbox *tools*)) => cdr] [else #f]))
+
+;; ---- runtime builders ------------------------------------------------------
+;; a param is (list name-string property-jsexpr required?)
+(define (param name type #:description [desc ""] #:required? [req? #t]
+               #:enum [enum #f] #:items [items #f])
+  (define h0 (hasheq 'type (symbol->string type) 'description desc))
+  (define h1 (if enum  (hash-set h0 'enum enum) h0))
+  (define h2 (if items (hash-set h1 'items (hasheq 'type (symbol->string items))) h1))
+  (list (symbol->string name) h2 req?))
+
+(define (tool->jsexpr name desc params)
+  (hasheq 'type "function"
+          'function
+          (hasheq 'name (symbol->string name)
+                  'description desc
+                  'parameters
+                  (hasheq 'type "object"
+                          'properties (for/hasheq ([p (in-list params)])
+                                        (values (string->symbol (car p)) (cadr p)))
+                          'required (for/list ([p (in-list params)] #:when (caddr p)) (car p))))))
+
+;; ---- the macro -------------------------------------------------------------
+(begin-for-syntax
+  (define-syntax-class tparam
+    #:attributes (rt)
+    (pattern (pid:id ptype:id
+              (~alt (~optional (~seq #:description d:str))
+                    (~optional (~seq #:enum (e:str ...)))
+                    (~optional (~seq #:items it:id))
+                    (~optional (~and #:optional opt))) ...)
+      #:attr rt
+      #`(param 'pid 'ptype
+               #:description #,(if (attribute d) #'d #'"")
+               #:required? #,(if (attribute opt) #'#f #'#t)
+               #:enum #,(if (attribute e) #'(list e ...) #'#f)
+               #:items #,(if (attribute it) #'(quote it) #'#f)))))
+
+(define-syntax (define-tool stx)
+  (syntax-parse stx
+    [(_ tname:id
+        (~optional (~seq #:description td:str) #:defaults ([td #'""]))
+        p:tparam ...)
+     ;; expand to a definition (not a bare expression, which `racket file.rkt`
+     ;; would print) — binds `tname` to its schema and registers it.
+     #'(define tname (register! 'tname (tool->jsexpr 'tname td (list p.rt ...))))]))

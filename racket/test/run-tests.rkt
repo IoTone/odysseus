@@ -16,7 +16,9 @@
          racket/file
          json
          db
-         "../domain/notes.rkt")     ; web-shape route serializer
+         "../domain/notes.rkt"      ; web-shape route serializer
+         "../domain/tools/dsl.rkt"        ; tool-schema DSL
+         "../domain/tools/core-tools.rkt")   ; registers the ported tools on load
 
 (define racket-bin (find-executable-path "racket"))
 ;; tests are run from the racket/ dir, so CLI sources are under cli/
@@ -355,7 +357,21 @@
       (check-equal? (map (lambda (n) (hash-ref n 'id))
                          (hash-ref (list-notes-web c #:owner "bob") 'notes)) '("nb"))
       (check-equal? (hash-ref (list-notes-web c #:owner "nobody") 'notes) '())
-      (disconnect c))))
+      (disconnect c))
+
+    (test-case "tool-schema DSL emits OpenAI-compatible schemas"
+      (define (fn name) (hash-ref (tool-ref name) 'function))
+      (define (params name) (hash-ref (fn name) 'parameters))
+      (check-equal? (hash-ref (tool-ref 'bash) 'type) "function")
+      (check-equal? (hash-ref (fn 'bash) 'name) "bash")
+      ;; required by default; #:optional drops from "required"
+      (check-equal? (hash-ref (params 'grep) 'required) '("pattern"))   ; others optional
+      (check-equal? (hash-ref (params 'ls) 'required) '())              ; lone optional path
+      (check-equal? (hash-ref (params 'edit_file) 'required) '("path" "old_string" "new_string"))
+      ;; enum carried through
+      (check-equal? (hash-ref (hash-ref (hash-ref (params 'web_search) 'properties) 'time_filter) 'enum)
+                    '("day" "week" "month" "year"))
+      (check-equal? (length (all-tool-schemas)) 10))))
 
 (module+ main
   (define n (run-tests suite))

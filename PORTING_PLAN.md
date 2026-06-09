@@ -89,7 +89,14 @@ hardening the toolchain. Order by dependency weight:
 The part that gets *better* in Racket, not just different. ~15–20k LOC of the
 40k `src/` is pure logic:
 - `tool_schemas.py` / `tool_policy.py` / `tool_parsing.py` → a `define-tool` DSL
-  (macros) replacing hand-maintained JSON-schema dicts.
+  (macros) replacing hand-maintained JSON-schema dicts. **✅ Started:**
+  `domain/tools/dsl.rkt` (`define-tool` macro: required-by-default params,
+  `#:optional`/`#:enum`/`#:items`) + `domain/tools/core-tools.rkt` (10 tools). The
+  emitted schemas are **byte-identical to `FUNCTION_TOOL_SCHEMAS`** for all 10
+  (verified by `ci/fidelity-tools.sh` via `ast.literal_eval` — no venv) and a
+  rackunit case. Compare ~12 declarative lines/tool here vs the nested dicts in
+  the 1372-line Python file. Remaining: port the other ~67 tools + the
+  native-call→ToolBlock converter.
 - `action_intents.py`, `agent_loop.py` (state machine) → `racket/match`.
 - `mcp_servers/` (MCP protocol) → Racket structs + JSON.
 - Ships as a **library** (so the future desktop GUI can link it directly, not over HTTP).
