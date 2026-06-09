@@ -18,7 +18,8 @@
          db
          "../domain/notes.rkt"      ; web-shape route serializer
          "../domain/tools/dsl.rkt"        ; tool-schema DSL
-         "../domain/tools/core-tools.rkt")   ; registers the ported tools on load
+         "../domain/tools/core-tools.rkt"    ; registers the ported tools on load
+         "../domain/tools/convert.rkt")      ; native-call → ToolBlock converter
 
 (define racket-bin (find-executable-path "racket"))
 ;; tests are run from the racket/ dir, so CLI sources are under cli/
@@ -371,7 +372,30 @@
       ;; enum carried through
       (check-equal? (hash-ref (hash-ref (hash-ref (params 'web_search) 'properties) 'time_filter) 'enum)
                     '("day" "week" "month" "year"))
-      (check-equal? (length (all-tool-schemas)) 10))))
+      (check-equal? (length (all-tool-schemas)) 10))
+
+    (test-case "native function-call → ToolBlock converter"
+      (define (conv n a) (function-call->tool-block n a))
+      (define (tc n a) (let ([t (conv n a)]) (and t (tool-block-content t))))
+      (check-equal? (let ([t (conv "bash" "{\"command\":\"ls -la\"}")])
+                      (list (tool-block-type t) (tool-block-content t))) '("bash" "ls -la"))
+      (check-equal? (tool-block-type (conv "shell" "{\"command\":\"pwd\"}")) "bash")  ; alias
+      (check-false (conv "frobnicate" "{}"))                                          ; unknown
+      (check-false (conv "bash" "NOT JSON"))                                          ; bad json
+      (check-equal? (tc "bash" "[1,2]") "")                                           ; non-dict → {}
+      (check-equal? (tool-block-type (conv "send_email" "{\"to\":\"a\"}")) "mcp__email__send_email")
+      ;; web_search query + time_filter → JSON object
+      (let ([j (string->jsexpr (tc "web_search" "{\"query\":\"x\",\"time_filter\":\"week\"}"))])
+        (check-equal? (hash-ref j 'query) "x")
+        (check-equal? (hash-ref j 'time_filter) "week"))
+      ;; read_file: plain path vs JSON when a range is requested
+      (check-equal? (tc "read_file" "{\"path\":\"a.txt\"}") "a.txt")
+      (check-equal? (hash-ref (string->jsexpr (tc "read_file" "{\"path\":\"a.txt\",\"offset\":5}")) 'offset) 5)
+      ;; structured assembly
+      (check-equal? (tc "edit_document" "{\"edits\":[{\"find\":\"a\",\"replace\":\"b\"}]}")
+                    "<<<FIND>>>\na\n<<<REPLACE>>>\nb\n<<<END>>>")
+      (check-equal? (tc "manage_memory" "{\"action\":\"add\",\"text\":\"hi\",\"category\":\"fact\"}")
+                    "add\nhi\nfact"))))
 
 (module+ main
   (define n (run-tests suite))

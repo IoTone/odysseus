@@ -51,7 +51,7 @@ Expect: no errors, `build: 0`.
 ```bash
 racket test/run-tests.rkt
 ```
-Expect: `11 success(es) 0 failure(s) 0 error(s) 11 test(s) run`.
+Expect: `12 success(es) 0 failure(s) 0 error(s) 12 test(s) run`.
 
 ### 5. Smoke the CLIs and server
 ```bash
@@ -124,7 +124,7 @@ Expect: no errors.
 ```powershell
 racket test/run-tests.rkt
 ```
-Expect: `11 success(es) 0 failure(s) 0 error(s) 11 test(s) run`.
+Expect: `12 success(es) 0 failure(s) 0 error(s) 12 test(s) run`.
 
 ### 5. Smoke the CLIs and server
 ```powershell
@@ -157,7 +157,7 @@ For each OS, the four things that matter most:
 |---|---|---|
 | A | `racket --version` | `v9.2 [cs]` |
 | B | Build (step 3) | no errors |
-| C | Test suite (step 4) | `11 success(es) 0 failure(s)` |
+| C | Test suite (step 4) | `12 success(es) 0 failure(s)` |
 | D | `raco exe` binary runs (step 6) | prints version, **no crash** |
 
 If anything fails, copy the terminal output (especially C and D) and send it

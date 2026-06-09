@@ -66,6 +66,8 @@ pipeline {
               . .venv/bin/activate
               pip install -q -r requirements.txt
               chmod +x ci/fidelity.sh && ci/fidelity.sh
+              # native-call→ToolBlock converter vs the live Python (needs venv).
+              chmod +x ci/fidelity-convert.sh && ci/fidelity-convert.sh
               deactivate
               # Tool-schema DSL vs FUNCTION_TOOL_SCHEMAS (no venv — ast.literal_eval).
               chmod +x ci/fidelity-tools.sh && ci/fidelity-tools.sh

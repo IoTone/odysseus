@@ -95,8 +95,14 @@ The part that gets *better* in Racket, not just different. ~15–20k LOC of the
   emitted schemas are **byte-identical to `FUNCTION_TOOL_SCHEMAS`** for all 10
   (verified by `ci/fidelity-tools.sh` via `ast.literal_eval` — no venv) and a
   rackunit case. Compare ~12 declarative lines/tool here vs the nested dicts in
-  the 1372-line Python file. Remaining: port the other ~67 tools + the
-  native-call→ToolBlock converter.
+  the 1372-line Python file.
+  **✅ Converter too:** `domain/tools/convert.rkt` ports
+  `function_call_to_tool_block` (native call → ToolBlock) as a `racket/match` over
+  the resolved tool type — the if/elif `args.get(...)` ladder becomes pattern
+  matching. Verified against the **live** Python converter (`ci/fidelity-convert.sh`,
+  26 cases: type exact, content semantic since Python's `json.dumps` spaces differ)
+  + a rackunit case. Remaining: the other ~67 tools + the full alias map / tags
+  (mechanical data) + the few custom-assembly branches (ui_control, manage_session).
 - `action_intents.py`, `agent_loop.py` (state machine) → `racket/match`.
 - `mcp_servers/` (MCP protocol) → Racket structs + JSON.
 - Ships as a **library** (so the future desktop GUI can link it directly, not over HTTP).
