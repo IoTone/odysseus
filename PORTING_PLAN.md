@@ -212,7 +212,11 @@ Toolchain policy by OS:
 ## Open items
 - [x] Official full Racket on Linux + working `raco exe`/`distribute` (pass 1).
 - [ ] Wire `racket/install-racket.sh` into CI for per-platform release builds.
-- [ ] macOS + Windows build verification (Linux confirmed).
-- [ ] Stand up the reverse proxy before Phase 3.
+- [x] **macOS + Windows verified by hand** — build, 10/10 suite, and a working
+  standalone `raco exe` on both (Windows on Racket 9.1). Three priority OSes
+  green; FreeBSD remains a "possibility." (Two cross-platform bugs found & fixed
+  in the process: db-kit `#:create-missing?` mode, and POSIX-only absolute-path
+  detection on Windows.)
+- [x] Strangler reverse proxy stood up (`server/proxy.rkt`), verified vs the live app.
 - [ ] Decide email/CalDAV: stay Python services vs. hand-roll in Racket (lean: stay Python).
 - [ ] Concurrency spike: one async route ported end-to-end to validate ergonomics.
