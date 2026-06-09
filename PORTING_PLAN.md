@@ -104,6 +104,13 @@ The part that gets *better* in Racket, not just different. ~15–20k LOC of the
   + a rackunit case. Remaining: the other ~67 tools + the full alias map / tags
   (mechanical data) + the few custom-assembly branches (ui_control, manage_session).
 - `action_intents.py`, `agent_loop.py` (state machine) → `racket/match`.
+  **✅ Spine started:** `domain/agent/loop.rkt` ports the agent loop's control
+  core as a *pure driver* — each round: no tool calls → DONE; tool calls →
+  run + feed back + continue; round cap → MAX-ROUNDS. The two effects (LLM turn,
+  tool exec) are **injected** (`#:llm`/`#:exec`), so it's deterministic and
+  tested without a model (rackunit: done/tools/max-rounds). The 2644-line Python
+  file's I/O (streaming, prompt assembly, retrieval, dedup, plan windows) stays
+  at the edges as the adapter; only the spine is ported so far.
 - `mcp_servers/` (MCP protocol) → Racket structs + JSON.
 - Ships as a **library** (so the future desktop GUI can link it directly, not over HTTP).
 - **Exit gate:** golden-file tests — same inputs → same tool-call JSON as Python.

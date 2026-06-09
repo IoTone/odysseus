@@ -19,7 +19,8 @@
          "../domain/notes.rkt"      ; web-shape route serializer
          "../domain/tools/dsl.rkt"        ; tool-schema DSL
          "../domain/tools/core-tools.rkt"    ; registers the ported tools on load
-         "../domain/tools/convert.rkt")      ; native-call → ToolBlock converter
+         "../domain/tools/convert.rkt"       ; native-call → ToolBlock converter
+         "../domain/agent/loop.rkt")         ; agent loop control spine
 
 (define racket-bin (find-executable-path "racket"))
 ;; tests are run from the racket/ dir, so CLI sources are under cli/
@@ -395,7 +396,33 @@
       (check-equal? (tc "edit_document" "{\"edits\":[{\"find\":\"a\",\"replace\":\"b\"}]}")
                     "<<<FIND>>>\na\n<<<REPLACE>>>\nb\n<<<END>>>")
       (check-equal? (tc "manage_memory" "{\"action\":\"add\",\"text\":\"hi\",\"category\":\"fact\"}")
-                    "add\nhi\nfact"))))
+                    "add\nhi\nfact"))
+
+    (test-case "agent loop — control spine (done / tools / max-rounds)"
+      (define exec-log (box '()))
+      (define (exec b) (set-box! exec-log (cons (tool-block-type b) (unbox exec-log))) "RESULT")
+      ;; a scripted llm that yields the next canned assistant-msg each round
+      (define (scripted xs) (let ([b (box xs)])
+                              (lambda (_) (define m (car (unbox b))) (set-box! b (cdr (unbox b))) m)))
+      ;; 1) no tool calls → DONE on round 1
+      (define r1 (run-agent '() #:llm (lambda (_) (assistant-msg "hello" '())) #:exec exec))
+      (check-equal? (agent-result-status r1) 'done)
+      (check-equal? (agent-result-rounds r1) 1)
+      ;; 2) one tool round, then DONE
+      (set-box! exec-log '())
+      (define bash (function-call->tool-block "bash" "{\"command\":\"ls\"}"))
+      (define r2 (run-agent '() #:exec exec
+                            #:llm (scripted (list (assistant-msg "" (list bash))
+                                                  (assistant-msg "Done." '())))))
+      (check-equal? (agent-result-status r2) 'done)
+      (check-equal? (agent-result-rounds r2) 2)
+      (check-equal? (unbox exec-log) '("bash"))          ; tool executed once
+      (check-equal? (length (agent-result-transcript r2)) 3)  ; assistant, tools, assistant
+      ;; 3) never stops → MAX-ROUNDS
+      (define r3 (run-agent '() #:exec exec #:max-rounds 3
+                            #:llm (lambda (_) (assistant-msg "" (list bash)))))
+      (check-equal? (agent-result-status r3) 'max-rounds)
+      (check-equal? (agent-result-rounds r3) 3))))
 
 (module+ main
   (define n (run-tests suite))
