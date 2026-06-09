@@ -21,9 +21,10 @@
          "../domain/tools/core-tools.rkt"    ; registers the ported tools on load
          "../domain/tools/convert.rkt"       ; native-call → ToolBlock converter
          "../domain/agent/loop.rkt"          ; agent loop control spine
-         "../domain/agent/llm.rkt"           ; OpenAI response parser (#:llm edge)
+         "../domain/agent/llm.rkt"           ; OpenAI response parser + streaming (#:llm edge)
          "../domain/agent/exec.rkt"          ; tool dispatcher (#:exec edge)
-         racket/string)
+         "../domain/agent/prompt.rkt"        ; system-prompt assembly
+         racket/string racket/set)
 
 (define racket-bin (find-executable-path "racket"))
 ;; tests are run from the racket/ dir, so CLI sources are under cli/
@@ -443,20 +444,61 @@
                   (hasheq 'choices (list (hasheq 'message (hasheq 'content "final answer"))))))
       (check-equal? (assistant-msg-text m2) "final answer")
       (check-equal? (assistant-msg-tool-blocks m2) '())
-      ;; dispatcher: read_file, ls, and an unimplemented tool
+      ;; dispatcher built-ins (pure/portable: read/ls/glob/grep/edit_file)
       (define ex (make-exec))
-      (define f (make-temporary-file))
-      (call-with-output-file f #:exists 'replace (lambda (o) (display "hello-content" o)))
-      (define-values (dir fname _d) (split-path f))
+      (define dir (make-temporary-file "odytest~a" 'directory))
+      (define f (build-path dir "x.txt"))
+      (call-with-output-file f #:exists 'replace (lambda (o) (display "alpha\nbeta\nGAMMA\nalpha\n" o)))
+      (define (path-of p) (path->string p))
+      ;; read_file (plain path) and a line range
+      (check-equal? (ex (function-call->tool-block "read_file" (jsexpr->string (hasheq 'path (path-of f)))))
+                    "alpha\nbeta\nGAMMA\nalpha\n")
       (check-equal? (ex (function-call->tool-block "read_file"
-                          (jsexpr->string (hasheq 'path (path->string f))))) "hello-content")
-      (check-true (string-contains?
-                   (ex (function-call->tool-block "ls" (jsexpr->string (hasheq 'path (path->string dir)))))
-                   (path->string fname)))
-      ;; a tool that converts (in tool-tags) but has no exec handler → "not implemented"
+                          (jsexpr->string (hasheq 'path (path-of f) 'offset 2 'limit 1)))) "beta")
+      ;; ls + glob find the file
+      (check-true (string-contains? (ex (function-call->tool-block "ls" (jsexpr->string (hasheq 'path (path-of dir))))) "x.txt"))
+      (check-true (string-contains? (ex (function-call->tool-block "glob"
+                    (jsexpr->string (hasheq 'pattern "*.txt" 'path (path-of dir))))) "x.txt"))
+      ;; grep → file:line:match
+      (check-true (regexp-match? #rx"x.txt:3:GAMMA"
+                   (ex (function-call->tool-block "grep" (jsexpr->string (hasheq 'pattern "GAM" 'path (path-of dir)))))))
+      ;; edit_file: non-unique without replace_all → error; replace_all → applied
+      (check-true (regexp-match? #rx"not unique"
+                   (ex (function-call->tool-block "edit_file"
+                        (jsexpr->string (hasheq 'path (path-of f) 'old_string "alpha" 'new_string "A"))))))
+      (ex (function-call->tool-block "edit_file"
+            (jsexpr->string (hasheq 'path (path-of f) 'old_string "alpha" 'new_string "A" 'replace_all #t))))
+      (check-equal? (file->string f) "A\nbeta\nGAMMA\nA\n")
+      ;; a tool in tool-tags but with no exec handler → "not implemented"
       (check-true (regexp-match? #rx"not implemented"
-                   (ex (function-call->tool-block "python" "{\"code\":\"1\"}"))))
-      (delete-file f))))
+                   (ex (function-call->tool-block "manage_memory" "{\"action\":\"list\"}"))))
+      (delete-directory/files dir))
+
+    (test-case "system-prompt assembly (enabled tools only)"
+      (define p (assemble-prompt #:tools '("bash" "read_file")))
+      (check-true (string-contains? p "DECLARE WHEN THE JOB IS DONE"))   ; base
+      (check-true (string-contains? p "`bash`"))                          ; enabled tool
+      (check-true (string-contains? p "`read_file`"))
+      (check-false (string-contains? p "`python`"))                       ; not enabled
+      ;; disabled filter + compact mode
+      (define p2 (assemble-prompt #:tools '("bash" "grep") #:disabled (set "grep")))
+      (check-true (string-contains? p2 "`bash`"))
+      (check-false (string-contains? p2 "`grep`"))
+      (check-true (string-contains? (assemble-prompt #:tools '("bash" "ls") #:compact? #t)
+                                    "Available tools: bash, ls")))
+
+    (test-case "streaming — reassemble SSE deltas into an assistant-msg"
+      ;; content split across chunks; a tool_call whose name + arguments arrive in pieces
+      (define deltas
+        (list (hasheq 'content "Hel")
+              (hasheq 'content "lo")
+              (hasheq 'tool_calls (list (hasheq 'index 0 'function (hasheq 'name "bash" 'arguments "{\"comm"))))
+              (hasheq 'tool_calls (list (hasheq 'index 0 'function (hasheq 'arguments "and\":\"ls\"}"))))))
+      (define m (stream-deltas->assistant-msg deltas))
+      (check-equal? (assistant-msg-text m) "Hello")
+      (check-equal? (length (assistant-msg-tool-blocks m)) 1)
+      (check-equal? (tool-block-type (car (assistant-msg-tool-blocks m))) "bash")
+      (check-equal? (tool-block-content (car (assistant-msg-tool-blocks m))) "ls"))))
 
 (module+ main
   (define n (run-tests suite))

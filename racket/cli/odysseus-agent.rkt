@@ -18,15 +18,13 @@
          "../domain/agent/loop.rkt"
          "../domain/agent/llm.rkt"
          "../domain/agent/exec.rkt"
+         "../domain/agent/prompt.rkt"
          "../domain/tools/dsl.rkt"
          "../domain/tools/core-tools.rkt"   ; registers the ported tools
          "../config.rkt")
 
-(define SYSTEM
-  (string-append
-   "You are an Odysseus agent running on the user's machine. Use the provided "
-   "tools to accomplish the request. Take one concrete step at a time. When the "
-   "task is complete, reply with a short final answer and DO NOT call any tool."))
+(define (tool-names)
+  (for/list ([s (in-list (all-tool-schemas))]) (hash-ref (hash-ref s 'function) 'name)))
 
 (define (opt args flag) (let loop ([xs args])
                           (cond [(null? xs) #f]
@@ -60,9 +58,14 @@
   (unless endpoint (fail "set --endpoint or LLM_ENDPOINT (OpenAI-compatible /v1/chat/completions URL)" #:code 2))
   (unless model (fail "set --model or LLM_MODEL" #:code 2))
   (unless prompt (fail "usage: odysseus-agent \"your prompt\" [--endpoint URL] [--model M]" #:code 2))
-  (define llm (openai-llm #:endpoint endpoint #:model model #:api-key api-key #:tools (all-tool-schemas)))
+  (define stream? (and (member "--stream" a) #t))   ; SSE streaming; content chunks → stderr
+  (define llm
+    (if stream?
+        (openai-llm-stream #:endpoint endpoint #:model model #:api-key api-key
+                           #:tools (all-tool-schemas) #:on-content (lambda (c) (eprintf "~a" c)))
+        (openai-llm #:endpoint endpoint #:model model #:api-key api-key #:tools (all-tool-schemas))))
   (define result
-    (run-agent (list (hasheq 'role "system" 'content SYSTEM)
+    (run-agent (list (hasheq 'role "system" 'content (assemble-prompt #:tools (tool-names)))
                      (hasheq 'role "user" 'content prompt))
                #:llm llm #:exec (make-exec) #:max-rounds max-rounds))
   (emit (hasheq 'status (symbol->string (agent-result-status result))

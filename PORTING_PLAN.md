@@ -118,8 +118,18 @@ The part that gets *better* in Racket, not just different. ~15–20k LOC of the
   `racket cli/odysseus-agent.rkt "…"` / `nix run .#odysseus-agent`. Verified
   END-TO-END over real HTTP against a mock OpenAI server: model→bash tool_call→
   executed→result fed back→final answer (done, 2 rounds). Response-parse +
-  dispatch covered by rackunit (portable). Remaining: real tool impls
-  (`tool_implementations.py`), the system prompt, and streaming.
+  dispatch covered by rackunit (portable).
+  **✅ Depth added:** (1) `#:exec` now has real built-ins — bash, python,
+  read_file (incl. line ranges), write_file, edit_file, ls, glob, grep (the
+  file tools are pure Racket via `file/glob` + regexp, so cross-platform),
+  web_fetch; (2) `domain/agent/prompt.rkt` ports `_assemble_prompt` (base +
+  only enabled tools' guidance, `#:disabled`/`#:compact?`), wired into the CLI;
+  (3) `openai-llm-stream` adds SSE streaming — `stream-deltas->assistant-msg`
+  reassembles content + per-index tool_call name/arguments fragments (pure,
+  rackunit-tested), and `odysseus-agent --stream` was verified end-to-end against
+  a mock SSE server (streamed tool call → executed → streamed final answer).
+  Remaining: the rest of `tool_implementations.py` and the full prompt text
+  (both mechanical).
 - `mcp_servers/` (MCP protocol) → Racket structs + JSON.
 - Ships as a **library** (so the future desktop GUI can link it directly, not over HTTP).
 - **Exit gate:** golden-file tests — same inputs → same tool-call JSON as Python.
