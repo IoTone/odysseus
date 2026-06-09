@@ -16,6 +16,7 @@
         "odysseus-logs" "odysseus-preset" "odysseus-signature"
         "odysseus-notes" "odysseus-sessions" "odysseus-tasks"
         "odysseus-research" "odysseus-mcp" "odysseus-calendar"
+        "odysseus-agent"
       ];
     in
     {
@@ -35,7 +36,7 @@
             raco make config.rkt \
               cli/odysseus-logs.rkt cli/odysseus-preset.rkt cli/odysseus-signature.rkt \
               cli/odysseus-notes.rkt cli/odysseus-sessions.rkt cli/odysseus-tasks.rkt \
-              cli/odysseus-research.rkt cli/odysseus-mcp.rkt cli/odysseus-calendar.rkt \
+              cli/odysseus-research.rkt cli/odysseus-mcp.rkt cli/odysseus-calendar.rkt cli/odysseus-agent.rkt \
               server/main.rkt server/proxy.rkt test/run-tests.rkt test/seed-db.rkt
             runHook postBuild
           '';
@@ -101,6 +102,7 @@
           odysseus-research = mk "odysseus-research";
           odysseus-mcp = mk "odysseus-mcp";
           odysseus-calendar = mk "odysseus-calendar";
+          odysseus-agent = mk "odysseus-agent";
           odysseus-server = mk "odysseus-server";
           odysseus-proxy = mk "odysseus-proxy";
           default = mk "odysseus-logs";
@@ -116,7 +118,7 @@
             export PLTCOLLECTS="$PWD/racket/pkgs:''${PLTCOLLECTS:-}"
             echo "Odysseus (Racket) dev shell · $(racket --version)"
             echo "  build : (cd racket && raco make config.rkt cli/odysseus-logs.rkt cli/odysseus-preset.rkt cli/odysseus-signature.rkt server/main.rkt test/run-tests.rkt)"
-            echo "  test  : (cd racket && racket test/run-tests.rkt)   # expect 13 success(es)"
+            echo "  test  : (cd racket && racket test/run-tests.rkt)   # expect 14 success(es)"
             echo "  run   : (cd racket && racket cli/odysseus-logs.rkt --version)"
             echo "  (kits resolve via PLTCOLLECTS — no raco pkg install needed)"
           '';

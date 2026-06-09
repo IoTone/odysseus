@@ -110,7 +110,16 @@ The part that gets *better* in Racket, not just different. ~15–20k LOC of the
   tool exec) are **injected** (`#:llm`/`#:exec`), so it's deterministic and
   tested without a model (rackunit: done/tools/max-rounds). The 2644-line Python
   file's I/O (streaming, prompt assembly, retrieval, dedup, plan windows) stays
-  at the edges as the adapter; only the spine is ported so far.
+  at the edges as the adapter.
+  **✅ Adapter + runnable agent:** `domain/agent/llm.rkt` (OpenAI-compatible
+  `#:llm`: pure `chat-response->assistant-msg` + HTTP `openai-llm`) and
+  `domain/agent/exec.rkt` (`#:exec` tool dispatcher: bash/read_file/write_file/ls
+  built-ins, fallback). `cli/odysseus-agent.rkt` wires them to the spine →
+  `racket cli/odysseus-agent.rkt "…"` / `nix run .#odysseus-agent`. Verified
+  END-TO-END over real HTTP against a mock OpenAI server: model→bash tool_call→
+  executed→result fed back→final answer (done, 2 rounds). Response-parse +
+  dispatch covered by rackunit (portable). Remaining: real tool impls
+  (`tool_implementations.py`), the system prompt, and streaming.
 - `mcp_servers/` (MCP protocol) → Racket structs + JSON.
 - Ships as a **library** (so the future desktop GUI can link it directly, not over HTTP).
 - **Exit gate:** golden-file tests — same inputs → same tool-call JSON as Python.

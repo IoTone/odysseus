@@ -16,18 +16,21 @@ the app depends on them.
         db-kit/     (require db-kit)   generic sqlite DATABASE_URL → connection
         web-kit/    (require web-kit)  thin JSON-API wrapper over web-server
       config.rkt                    app-only glue (repo paths, version, app db)
-      domain/{notes,sessions}.rkt   shared logic (CLI + HTTP routes)
+      domain/
+        {notes,sessions}.rkt        shared logic (CLI + HTTP routes)
+        tools/                      define-tool DSL + native-call → ToolBlock converter
+        agent/                      loop spine + OpenAI LLM adapter + tool dispatcher
       cli/
         odysseus-logs.rkt        filesystem ✅   odysseus-notes.rkt     DB ✅
         odysseus-preset.rkt      JSON file ✅    odysseus-sessions.rkt  DB ✅
         odysseus-research.rkt    JSON files ✅   odysseus-tasks.rkt     DB ✅
         odysseus-signature.rkt   SQLite ✅       odysseus-mcp.rkt       DB ✅
-        odysseus-calendar.rkt    SQLite ✅
+        odysseus-calendar.rkt    SQLite ✅       odysseus-agent.rkt     agent ✅
       server/
         main.rkt                    web-server: /health, /api/notes, /api/sessions
         proxy.rkt                   strangler reverse proxy (RACKET_PREFIXES → Racket, rest → Python)
         concurrency-demo.rkt        proof: native evented I/O, no libuv
-      test/run-tests.rkt            portable rackunit suite (13 cases)
+      test/run-tests.rkt            portable rackunit suite (14 cases)
       info.rkt                      the app package
 
 ## Install Racket
@@ -88,7 +91,7 @@ build *is* a passing test run. Installed commands are wrappers around nixpkgs'
     # the explicit list in VALIDATION.md — PowerShell doesn't expand *.rkt)
     raco make config.rkt cli/*.rkt domain/*.rkt server/*.rkt test/*.rkt
 
-    racket test/run-tests.rkt                 # the suite (expect: 13 success(es))
+    racket test/run-tests.rkt                 # the suite (expect: 14 success(es))
     racket cli/odysseus-logs.rkt list --pretty
     racket cli/odysseus-calendar.rkt calendars --pretty   # DB CLI example
     racket server/main.rkt --port 8099 &      # then: curl localhost:8099/{health,api/notes}
@@ -115,7 +118,7 @@ On Linux, build these with the **official** Racket, not Homebrew (the
 Fastest signal → fullest:
 
     raco make config.rkt cli/*.rkt domain/*.rkt server/*.rkt test/*.rkt   # 1. compiles?
-    racket test/run-tests.rkt                                # 2. behavior (13 tests)
+    racket test/run-tests.rkt                                # 2. behavior (14 tests)
     ../ci/fidelity.sh                                        # 3. byte-identical to Python (from repo root)
 
 For hands-on, step-by-step verification (CLIs, server, packaging, fidelity,

@@ -20,7 +20,10 @@
          "../domain/tools/dsl.rkt"        ; tool-schema DSL
          "../domain/tools/core-tools.rkt"    ; registers the ported tools on load
          "../domain/tools/convert.rkt"       ; native-call → ToolBlock converter
-         "../domain/agent/loop.rkt")         ; agent loop control spine
+         "../domain/agent/loop.rkt"          ; agent loop control spine
+         "../domain/agent/llm.rkt"           ; OpenAI response parser (#:llm edge)
+         "../domain/agent/exec.rkt"          ; tool dispatcher (#:exec edge)
+         racket/string)
 
 (define racket-bin (find-executable-path "racket"))
 ;; tests are run from the racket/ dir, so CLI sources are under cli/
@@ -422,7 +425,38 @@
       (define r3 (run-agent '() #:exec exec #:max-rounds 3
                             #:llm (lambda (_) (assistant-msg "" (list bash)))))
       (check-equal? (agent-result-status r3) 'max-rounds)
-      (check-equal? (agent-result-rounds r3) 3))))
+      (check-equal? (agent-result-rounds r3) 3))
+
+    (test-case "agent adapter — OpenAI response parse + tool dispatch"
+      ;; parse a response carrying a native tool_call
+      (define resp (hasheq 'choices
+        (list (hasheq 'message
+          (hasheq 'content 'null
+                  'tool_calls (list (hasheq 'function (hasheq 'name "bash"
+                                                             'arguments "{\"command\":\"echo hi\"}"))))))))
+      (define m (chat-response->assistant-msg resp))
+      (check-equal? (assistant-msg-text m) "")
+      (check-equal? (length (assistant-msg-tool-blocks m)) 1)
+      (check-equal? (tool-block-content (car (assistant-msg-tool-blocks m))) "echo hi")
+      ;; parse a plain final answer (no tools)
+      (define m2 (chat-response->assistant-msg
+                  (hasheq 'choices (list (hasheq 'message (hasheq 'content "final answer"))))))
+      (check-equal? (assistant-msg-text m2) "final answer")
+      (check-equal? (assistant-msg-tool-blocks m2) '())
+      ;; dispatcher: read_file, ls, and an unimplemented tool
+      (define ex (make-exec))
+      (define f (make-temporary-file))
+      (call-with-output-file f #:exists 'replace (lambda (o) (display "hello-content" o)))
+      (define-values (dir fname _d) (split-path f))
+      (check-equal? (ex (function-call->tool-block "read_file"
+                          (jsexpr->string (hasheq 'path (path->string f))))) "hello-content")
+      (check-true (string-contains?
+                   (ex (function-call->tool-block "ls" (jsexpr->string (hasheq 'path (path->string dir)))))
+                   (path->string fname)))
+      ;; a tool that converts (in tool-tags) but has no exec handler → "not implemented"
+      (check-true (regexp-match? #rx"not implemented"
+                   (ex (function-call->tool-block "python" "{\"code\":\"1\"}"))))
+      (delete-file f))))
 
 (module+ main
   (define n (run-tests suite))
