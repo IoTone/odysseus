@@ -40,9 +40,12 @@
 (define (sqlite-path url #:base-dir [base-dir (current-directory)])
   (unless (string-prefix? url "sqlite:")
     (error 'sqlite-path "only sqlite URLs are supported, got: ~a" url))
-  (define raw (regexp-replace #rx"^sqlite:///" url ""))   ; "./data/app.db" | "/abs/app.db"
-  (if (string-prefix? raw "/")
-      (string->path raw)
+  (define raw (regexp-replace #rx"^sqlite:///" url ""))   ; "./data/app.db" | "/abs" | "C:\\abs"
+  ;; absolute-path? is platform-aware: matches POSIX "/x" AND Windows "C:\x"/"C:/x".
+  ;; (A leading-"/" test mis-classifies Windows drive paths as relative, joining
+  ;; them onto base-dir → broken DB path. This bit every DB CLI on Windows.)
+  (if (absolute-path? raw)
+      (simplify-path (string->path raw))
       (simplify-path (build-path base-dir raw))))
 
 ;; Open the db. By default fails loudly if it doesn't exist rather than silently
