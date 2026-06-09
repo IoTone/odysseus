@@ -24,8 +24,14 @@
          (struct-out agent-result)
          run-agent)
 
-;; what an #:llm turn yields: the model's text + any tool calls it requested
-(struct assistant-msg (text tool-blocks) #:transparent)
+;; what an #:llm turn yields: the model's text, the tool calls it requested
+;; (as tool-blocks for #:exec), and the *raw* OpenAI tool_call objects aligned
+;; 1:1 with tool-blocks — so the loop can echo them back in the real protocol
+;; (assistant.tool_calls + role:"tool" with tool_call_id). Strict chat templates
+;; (e.g. local qwen via ollama) require this; lenient ones (gpt-4o) don't, but
+;; sending it is correct for both. raw-calls may be '() (e.g. in unit tests),
+;; in which case the loop falls back to a flattened user turn.
+(struct assistant-msg (text tool-blocks raw-calls) #:transparent)
 
 ;; how the loop ended. status: 'done | 'max-rounds
 ;; transcript: list of events, oldest first —
@@ -53,9 +59,21 @@
           (define results
             (for/list ([b (in-list blocks)])
               (cons (tool-block-type b) (exec b))))
-          (loop (append messages
-                        (list (hasheq 'role "assistant" 'content (assistant-msg-text msg))
-                              (hasheq 'role "user" 'content (results->text results))))
+          (define raw (assistant-msg-raw-calls msg))
+          ;; Real OpenAI protocol when we have raw tool_calls aligned with the
+          ;; results; otherwise the legacy flattened user turn (keeps the spine
+          ;; usable without an OpenAI-shaped llm, e.g. in tests).
+          (define follow-ups
+            (if (and (pair? raw) (= (length raw) (length results)))
+                (cons (hasheq 'role "assistant" 'content (assistant-msg-text msg)
+                              'tool_calls raw)
+                      (for/list ([rc (in-list raw)] [r (in-list results)])
+                        (hasheq 'role "tool"
+                                'tool_call_id (hash-ref rc 'id "call_0")
+                                'content (cdr r))))
+                (list (hasheq 'role "assistant" 'content (assistant-msg-text msg))
+                      (hasheq 'role "user" 'content (results->text results)))))
+          (loop (append messages follow-ups)
                 (add1 round)
                 (cons (list 'tools round results) tx))])])))
 

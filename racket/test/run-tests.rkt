@@ -405,26 +405,41 @@
     (test-case "agent loop — control spine (done / tools / max-rounds)"
       (define exec-log (box '()))
       (define (exec b) (set-box! exec-log (cons (tool-block-type b) (unbox exec-log))) "RESULT")
-      ;; a scripted llm that yields the next canned assistant-msg each round
+      ;; a scripted llm that yields the next canned assistant-msg each round and
+      ;; records the messages it was handed (so we can inspect protocol threading)
+      (define seen (box '()))
       (define (scripted xs) (let ([b (box xs)])
-                              (lambda (_) (define m (car (unbox b))) (set-box! b (cdr (unbox b))) m)))
+                              (lambda (ms) (set-box! seen (cons ms (unbox seen)))
+                                (define m (car (unbox b))) (set-box! b (cdr (unbox b))) m)))
       ;; 1) no tool calls → DONE on round 1
-      (define r1 (run-agent '() #:llm (lambda (_) (assistant-msg "hello" '())) #:exec exec))
+      (define r1 (run-agent '() #:llm (lambda (_) (assistant-msg "hello" '() '())) #:exec exec))
       (check-equal? (agent-result-status r1) 'done)
       (check-equal? (agent-result-rounds r1) 1)
-      ;; 2) one tool round, then DONE
-      (set-box! exec-log '())
+      ;; 2) one tool round, then DONE — with raw tool_calls, the loop must feed
+      ;; results back as the real OpenAI protocol (assistant.tool_calls + role:tool)
+      (set-box! exec-log '()) (set-box! seen '())
       (define bash (function-call->tool-block "bash" "{\"command\":\"ls\"}"))
+      (define raw (hasheq 'id "call_abc" 'type "function"
+                          'function (hasheq 'name "bash" 'arguments "{\"command\":\"ls\"}")))
       (define r2 (run-agent '() #:exec exec
-                            #:llm (scripted (list (assistant-msg "" (list bash))
-                                                  (assistant-msg "Done." '())))))
+                            #:llm (scripted (list (assistant-msg "" (list bash) (list raw))
+                                                  (assistant-msg "Done." '() '())))))
       (check-equal? (agent-result-status r2) 'done)
       (check-equal? (agent-result-rounds r2) 2)
       (check-equal? (unbox exec-log) '("bash"))          ; tool executed once
       (check-equal? (length (agent-result-transcript r2)) 3)  ; assistant, tools, assistant
+      ;; the 2nd llm turn received: assistant w/ tool_calls, then role:tool w/ id
+      (define round2-msgs (car (unbox seen)))            ; most recent call
+      (define a-msg (findf (lambda (m) (and (equal? (hash-ref m 'role #f) "assistant")
+                                            (hash-has-key? m 'tool_calls))) round2-msgs))
+      (define t-msg (findf (lambda (m) (equal? (hash-ref m 'role #f) "tool")) round2-msgs))
+      (check-true (and a-msg #t) "assistant turn echoes tool_calls")
+      (check-true (and t-msg #t) "result fed back as a role:tool message")
+      (check-equal? (hash-ref t-msg 'tool_call_id) "call_abc")
+      (check-equal? (hash-ref t-msg 'content) "RESULT")
       ;; 3) never stops → MAX-ROUNDS
       (define r3 (run-agent '() #:exec exec #:max-rounds 3
-                            #:llm (lambda (_) (assistant-msg "" (list bash)))))
+                            #:llm (lambda (_) (assistant-msg "" (list bash) (list raw)))))
       (check-equal? (agent-result-status r3) 'max-rounds)
       (check-equal? (agent-result-rounds r3) 3))
 

@@ -18,20 +18,27 @@
 (provide chat-response->assistant-msg openai-llm http-post-json
          stream-deltas->assistant-msg openai-llm-stream)
 
+;; canonical raw tool_call object echoed back to the model next round
+(define (raw-call id name args) (hasheq 'id id 'type "function"
+                                        'function (hasheq 'name name 'arguments args)))
+
 ;; ---- pure: parse a /v1/chat/completions response into an assistant-msg ------
 (define (chat-response->assistant-msg resp)
   (define choices (hash-ref resp 'choices '()))
   (define msg (if (pair? choices) (hash-ref (car choices) 'message (hasheq)) (hasheq)))
   (define content (let ([c (hash-ref msg 'content 'null)]) (if (string? c) c "")))
-  (define blocks
-    (for*/list ([tc (in-list (let ([t (hash-ref msg 'tool_calls '())]) (if (list? t) t '())))]
-                [fn (in-value (hash-ref tc 'function (hasheq)))]
-                [b  (in-value (function-call->tool-block
-                               (hash-ref fn 'name "")
-                               (let ([a (hash-ref fn 'arguments "{}")]) (if (string? a) a (jsexpr->string a)))))]
+  ;; build (block . raw-call) pairs, dropping any the converter rejects so the
+  ;; two stay aligned (loop pairs raw-call[i] with result[i]).
+  (define pairs
+    (for*/list ([(tc i) (in-indexed (in-list (let ([t (hash-ref msg 'tool_calls '())]) (if (list? t) t '()))))]
+                [fn   (in-value (hash-ref tc 'function (hasheq)))]
+                [name (in-value (hash-ref fn 'name ""))]
+                [args (in-value (let ([a (hash-ref fn 'arguments "{}")]) (if (string? a) a (jsexpr->string a))))]
+                [b    (in-value (function-call->tool-block name args))]
                 #:when b)
-      b))
-  (assistant-msg content blocks))
+      (cons b (raw-call (let ([id (hash-ref tc 'id #f)]) (if (string? id) id (format "call_~a" i)))
+                        name args))))
+  (assistant-msg content (map car pairs) (map cdr pairs)))
 
 ;; ---- impure: HTTP -----------------------------------------------------------
 (define (status-code status) (let ([m (regexp-match #px#"\\b([0-9]{3})\\b" status)])
@@ -87,23 +94,25 @@
 ;; pieces — reassemble per index, then decode with function-call->tool-block.
 (define (stream-deltas->assistant-msg deltas)
   (define content (open-output-string))
-  (define calls (make-hash))                 ; index -> (mcons name args-so-far)
+  (define calls (make-hash))                 ; index -> mutable hash 'id/'name/'args
   (for ([d (in-list deltas)])
     (let ([c (hash-ref d 'content #f)]) (when (string? c) (write-string c content)))
     (for ([tc (in-list (let ([t (hash-ref d 'tool_calls '())]) (if (list? t) t '())))])
       (define idx (let ([i (hash-ref tc 'index 0)]) (if (number? i) i 0)))
-      (define cur (hash-ref! calls idx (lambda () (mcons "" ""))))
+      (define cur (hash-ref! calls idx (lambda () (make-hash (list (cons 'id #f) (cons 'name "") (cons 'args ""))))))
+      (let ([id (hash-ref tc 'id #f)]) (when (string? id) (hash-set! cur 'id id)))
       (define fn (hash-ref tc 'function (hasheq)))
-      (let ([n (hash-ref fn 'name #f)]) (when (and (string? n) (not (string=? n ""))) (set-mcar! cur n)))
-      (let ([a (hash-ref fn 'arguments #f)]) (when (string? a) (set-mcdr! cur (string-append (mcdr cur) a))))))
-  (define blocks
+      (let ([n (hash-ref fn 'name #f)]) (when (and (string? n) (not (string=? n ""))) (hash-set! cur 'name n)))
+      (let ([a (hash-ref fn 'arguments #f)]) (when (string? a) (hash-set! cur 'args (string-append (hash-ref cur 'args) a))))))
+  (define pairs
     (for*/list ([idx (in-list (sort (hash-keys calls) <))]
-                [cur (in-value (hash-ref calls idx))]
-                [b (in-value (function-call->tool-block (mcar cur)
-                              (let ([a (mcdr cur)]) (if (string=? a "") "{}" a))))]
+                [cur  (in-value (hash-ref calls idx))]
+                [name (in-value (hash-ref cur 'name))]
+                [args (in-value (let ([a (hash-ref cur 'args)]) (if (string=? a "") "{}" a)))]
+                [b    (in-value (function-call->tool-block name args))]
                 #:when b)
-      b))
-  (assistant-msg (get-output-string content) blocks))
+      (cons b (raw-call (or (hash-ref cur 'id) (format "call_~a" idx)) name args))))
+  (assistant-msg (get-output-string content) (map car pairs) (map cdr pairs)))
 
 ;; streaming #:llm — same shape as openai-llm, but reads SSE and (optionally)
 ;; emits content chunks live via #:on-content.
