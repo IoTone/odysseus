@@ -128,6 +128,21 @@ The part that gets *better* in Racket, not just different. ~15–20k LOC of the
   reassembles content + per-index tool_call name/arguments fragments (pure,
   rackunit-tested), and `odysseus-agent --stream` was verified end-to-end against
   a mock SSE server (streamed tool call → executed → streamed final answer).
+  **✅ Verified against a real local LLM:** end-to-end through `ollama` (blocking
+  + `--stream`), model→`glob`/`bash`→real exec→final answer.
+    - **Requires ollama ≥ 0.3.0** — older builds (e.g. 0.1.33) silently ignore
+      the `tools` field and never emit `tool_calls`. Run:
+      `LLM_ENDPOINT=http://127.0.0.1:11434/v1/chat/completions LLM_MODEL=qwen2.5:7b
+      racket cli/odysseus-agent.rkt "list the .rkt files here, how many?" --pretty`.
+    - **Minimal model: `qwen2.5:7b`.** `qwen2.5:3b` is marginal — fine with a
+      system prompt + ≤7 tools, or 10 tools + no system prompt, but returns empty
+      content with the full prompt + all 10 tools (even `tool_choice:"required"`).
+    - This surfaced + fixed a real protocol bug: the loop fed tool results back as
+      a flattened user turn (empty assistant, no `tool_calls`). Lenient endpoints
+      (gpt-4o) tolerate it; strict templates (qwen) silently stop. The loop now
+      echoes `assistant.tool_calls` + one `role:"tool"` message per result (matched
+      by `tool_call_id`), with the flattened turn kept as a fallback when there are
+      no raw calls (so the spine stays usable without an OpenAI-shaped `llm`).
   Remaining: the rest of `tool_implementations.py` and the full prompt text
   (both mechanical).
 - `mcp_servers/` (MCP protocol) → Racket structs + JSON.

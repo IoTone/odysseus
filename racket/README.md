@@ -96,6 +96,24 @@ build *is* a passing test run. Installed commands are wrappers around nixpkgs'
     racket cli/odysseus-calendar.rkt calendars --pretty   # DB CLI example
     racket server/main.rkt --port 8099 &      # then: curl localhost:8099/{health,api/notes}
 
+## Running the agent against a local LLM
+
+`cli/odysseus-agent.rkt` drives any OpenAI-compatible `/v1/chat/completions`
+endpoint. To run fully offline with [ollama](https://ollama.com):
+
+    # ollama MUST be >= 0.3.0 — older builds silently ignore `tools` (no tool_calls).
+    ollama --version
+    ollama pull qwen2.5:7b                     # minimal model (see note below)
+
+    LLM_ENDPOINT=http://127.0.0.1:11434/v1/chat/completions LLM_MODEL=qwen2.5:7b \
+      racket cli/odysseus-agent.rkt "list the .rkt files here, how many?" --pretty
+    # add --stream for live SSE output (content chunks -> stderr)
+
+**Minimal model: `qwen2.5:7b`.** `qwen2.5:3b` is marginal — it handles a system
+prompt with up to ~7 tools, but returns empty content with the full agent prompt
++ all 10 tools. Larger / hosted models (gpt-4o, etc.) work via the same flags
+plus `OPENAI_API_KEY`.
+
 ## Fidelity check (the porting contract)
 
 Every ported CLI must produce byte-identical JSON to its Python original:
