@@ -34,6 +34,8 @@ CASES='[
  ["manage_memory",{"action":"delete","memory_id":"m1"}],
  ["manage_notes",{"action":"add","title":"t","checklist_items":[{"text":"a","done":false}]}],
  ["todos",{"action":"list"}],
+ ["manage_tasks",{"action":"create","prompt":"p","schedule":"daily","scheduled_time":"07:30"}],
+ ["tasks",{"action":"list"}],
  ["send_email",{"to":"a@b.c"}],
  ["frobnicate",{}],
  ["bash","NOT JSON"]

@@ -17,14 +17,16 @@
          json
          db
          "../domain/notes.rkt"      ; web-shape route serializer
+         "../domain/tasks.rkt"      ; manage_tasks agent tool
          "../domain/tools/dsl.rkt"        ; tool-schema DSL
          "../domain/tools/core-tools.rkt"    ; registers the ported tools on load
          "../domain/tools/convert.rkt"       ; native-call → ToolBlock converter
+         "../domain/tools/result.rkt"        ; tool-result->text renderer
          "../domain/agent/loop.rkt"          ; agent loop control spine
          "../domain/agent/llm.rkt"           ; OpenAI response parser + streaming (#:llm edge)
          "../domain/agent/exec.rkt"          ; tool dispatcher (#:exec edge)
          "../domain/agent/prompt.rkt"        ; system-prompt assembly
-         racket/string racket/set)
+         racket/string racket/set racket/date)
 
 (define racket-bin (find-executable-path "racket"))
 ;; tests are run from the racket/ dir, so CLI sources are under cli/
@@ -384,7 +386,7 @@
       (check-equal? (hash-ref (hash-ref ci 'items) 'required) '("text"))
       (check-equal? (hash-ref (hash-ref (hash-ref (hash-ref ci 'items) 'properties) 'done) 'type)
                     "boolean")
-      (check-equal? (length (all-tool-schemas)) 11))
+      (check-equal? (length (all-tool-schemas)) 12))
 
     (test-case "native function-call → ToolBlock converter"
       (define (conv n a) (function-call->tool-block n a))
@@ -456,9 +458,74 @@
       (check-equal? (hash-ref (run "{nope") 'error) "Invalid JSON arguments")
       (check-true (string-prefix? (hash-ref (run "{\"action\":\"zap\"}") 'error) "Unknown action: zap"))
       (check-equal? (hash-ref (run "{\"action\":\"delete\",\"id\":\"zzz\"}") 'error) "Note 'zzz' not found")
-      (check-equal? (manage-notes-result->text (hasheq 'error "boom" 'exit_code 1)) "**Error:** boom")
-      (check-true (string-prefix? (manage-notes-result->text r1) "Note created:"))
-      (check-true (string-contains? (manage-notes-result->text r1) "**data:**"))
+      (check-equal? (tool-result->text (hasheq 'error "boom" 'exit_code 1)) "**Error:** boom")
+      (check-true (string-prefix? (tool-result->text r1) "Note created:"))
+      (check-true (string-contains? (tool-result->text r1) "**data:**"))
+      (disconnect c))
+
+    (test-case "manage_tasks tool — compute-next-run + CRUD on scheduled tasks"
+      ;; date math: fixtures verified against live Python compute_next_run
+      ;; (after=2026-06-09 14:30 UTC, a Tuesday)
+      (define now (find-seconds 0 30 14 9 6 2026 #f))
+      (define (cnr s t [d #f]) (compute-next-run s t d #:now now))
+      (check-equal? (cnr "daily" "09:00")      "2026-06-10 09:00:00.000000")  ; past today → tomorrow
+      (check-equal? (cnr "daily" "16:00")      "2026-06-09 16:00:00.000000")  ; later today
+      (check-equal? (cnr "weekly" "08:00" 0)   "2026-06-15 08:00:00.000000")  ; next Monday
+      (check-equal? (cnr "weekly" "18:00" 1)   "2026-06-09 18:00:00.000000")  ; today (Tue), later
+      (check-equal? (cnr "monthly" "09:00" 1)  "2026-07-01 09:00:00.000000")  ; 1st passed → next month
+      (check-equal? (cnr "monthly" "09:00" 31) "2026-06-30 09:00:00.000000")  ; clamp to short month
+      (check-false (cnr "once" "09:00"))                                       ; once: no next run
+      (check-false (cnr "daily" "9am"))                                        ; malformed → fail closed
+      ;; CRUD
+      (define c (sqlite3-connect #:database 'memory))
+      (query-exec c (string-append
+        "CREATE TABLE scheduled_tasks(id TEXT PRIMARY KEY,owner TEXT,name TEXT,prompt TEXT,"
+        "task_type TEXT,action TEXT,schedule TEXT,scheduled_time TEXT,scheduled_day INT,"
+        "scheduled_date TEXT,trigger_type TEXT,trigger_event TEXT,trigger_count INT,"
+        "trigger_counter INT,next_run TEXT,last_run TEXT,status TEXT,output_target TEXT,"
+        "session_id TEXT,model TEXT,endpoint_url TEXT,run_count INT,cron_expression TEXT,"
+        "then_task_id TEXT,webhook_token TEXT,crew_member_id TEXT,character_id TEXT,"
+        "max_steps INT,email_results INT,notifications_enabled INT,created_at TEXT,updated_at TEXT)"))
+      (define (run s #:owner [o #f]) (manage-tasks c s #:owner o))
+      (define r1 (run "{\"action\":\"create\",\"prompt\":\"Summarize my day\",\"schedule\":\"daily\",\"scheduled_time\":\"07:30\"}"))
+      (check-equal? (hash-ref r1 'exit_code) 0)
+      (define tid (hash-ref r1 'task_id))
+      (check-true (string-prefix? (hash-ref r1 'response)
+                                  "Created task 'Summarize my day'"))  ; name falls back to prompt[:50]
+      ;; list: response + serialized tasks array (next_run is iso+Z)
+      (define l1 (run "{\"action\":\"list\"}"))
+      (check-equal? (hash-ref l1 'response) "Found 1 tasks")
+      (define t1 (car (hash-ref l1 'tasks)))
+      (check-equal? (hash-ref t1 'task_type) "llm")
+      (check-equal? (hash-ref t1 'trigger_type) "schedule")
+      (check-true (string-suffix? (hash-ref t1 'next_run) "Z"))
+      ;; create validations
+      (check-equal? (hash-ref (run "{\"action\":\"create\",\"task_type\":\"research\"}") 'error)
+                    "Prompt is required for llm/research tasks")
+      (check-equal? (hash-ref (run "{\"action\":\"create\",\"task_type\":\"action\"}") 'error)
+                    "action_name is required for action tasks")
+      ;; edit: changed-field list, action_name reported as "action"
+      (define e1 (run (jsexpr->string (hasheq 'action "edit" 'task_id tid
+                                              'name "Digest" 'scheduled_time "06:00"))))
+      (check-equal? (hash-ref e1 'response) "Updated task 'Digest': name, scheduled_time")
+      ;; pause / resume (resume recomputes next_run for schedule triggers)
+      (query-exec c "UPDATE scheduled_tasks SET next_run = NULL WHERE id = ?" tid)
+      (check-equal? (hash-ref (run (jsexpr->string (hasheq 'action "pause" 'task_id tid))) 'response)
+                    "Task 'Digest' paused")
+      (check-equal? (hash-ref (run (jsexpr->string (hasheq 'action "resume" 'task_id tid))) 'response)
+                    "Task 'Digest' resumed")
+      (check-false (sql-null? (query-value c "SELECT next_run FROM scheduled_tasks WHERE id = ?" tid)))
+      ;; run: faithful no-scheduler error
+      (check-equal? (hash-ref (run (jsexpr->string (hasheq 'action "run" 'task_id tid))) 'error)
+                    "Task scheduler not available")
+      ;; owner guard + missing id + delete
+      (define rb (run "{\"action\":\"create\",\"prompt\":\"x\"}" #:owner "bob"))
+      (check-equal? (hash-ref (run (jsexpr->string (hasheq 'action "delete" 'task_id (hash-ref rb 'task_id)))
+                                   #:owner "alice") 'error)
+                    "Access denied")
+      (check-equal? (hash-ref (run "{\"action\":\"delete\"}") 'error) "task_id is required for delete")
+      (check-equal? (hash-ref (run (jsexpr->string (hasheq 'action "delete" 'task_id tid))) 'response)
+                    "Deleted task 'Digest'")
       (disconnect c))
 
     (test-case "agent loop — control spine (done / tools / max-rounds)"

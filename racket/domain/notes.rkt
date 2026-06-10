@@ -10,12 +10,12 @@
 (require db
          json
          racket/string
-         racket/random
-         db-kit)
+         db-kit
+         "util.rkt")
 
 (provide notes-cols note->jsexpr list-notes        ; CLI shape (Unix tool)
          note->web-jsexpr list-notes-web           ; HTTP shape (matches routes/note_routes.py)
-         manage-notes manage-notes-result->text)   ; agent tool (ports do_manage_notes)
+         manage-notes)                             ; agent tool (ports do_manage_notes)
 
 ;; columns selected for serialization, in fixed order
 (define notes-cols
@@ -121,15 +121,6 @@
 ;; parser (parse_due_for_user) is not ported — its own failure path stores the
 ;; raw value too, so passthrough IS Python's fallback behavior.
 
-(define (jget a k)                       ; args.get(k): missing/json-null -> #f
-  (let ([v (hash-ref a k #f)]) (if (eq? v 'null) #f v)))
-(define (jtruthy v)                      ; Python truthiness over jsexpr values
-  (cond [(or (eq? v #f) (eq? v 'null)) #f]
-        [(and (string? v) (string=? v "")) #f]
-        [(and (number? v) (zero? v)) #f]
-        [(and (list? v) (null? v)) #f]
-        [else #t]))
-(define (id8 id) (substring id 0 (min 8 (string-length id))))
 (define (or-untitled t) (if (jtruthy t) t "(untitled)"))
 (define (b->i v) (if (jtruthy v) 1 0))
 (define (or-sql-null v) (if (eq? v #f) sql-null v))
@@ -138,21 +129,6 @@
 (define (norm-note-title value)
   (define t (string-downcase (string-trim (or value ""))))
   (regexp-replace* #px"\\s+" (regexp-replace #px"^\\s*reminder\\s*:\\s*" t "") " "))
-
-(define (uuid4)
-  (define b (bytes-copy (crypto-random-bytes 16)))
-  (bytes-set! b 6 (bitwise-ior (bitwise-and (bytes-ref b 6) #x0f) #x40))
-  (bytes-set! b 8 (bitwise-ior (bitwise-and (bytes-ref b 8) #x3f) #x80))
-  (define hex (apply string-append (for/list ([x (in-bytes b)])
-                                     (if (< x 16) (format "0~x" x) (format "~x" x)))))
-  (string-append (substring hex 0 8) "-" (substring hex 8 12) "-" (substring hex 12 16)
-                 "-" (substring hex 16 20) "-" (substring hex 20 32)))
-
-(define (now-stamp)                      ; SQLAlchemy-style "YYYY-MM-DD HH:MM:SS.ffffff" (UTC)
-  (define d (seconds->date (current-seconds) #f))
-  (define (p2 n) (if (< n 10) (format "0~a" n) (number->string n)))
-  (format "~a-~a-~a ~a:~a:~a.000000" (date-year d) (p2 (date-month d)) (p2 (date-day d))
-          (p2 (date-hour d)) (p2 (date-minute d)) (p2 (date-second d))))
 
 (define action-aliases
   (hash "create" "add" "new" "add" "save" "add" "remind" "add"
@@ -344,21 +320,5 @@
                                   (if now-done "done" "undone"))
                 'exit_code 0)])]))
 
-;; Render a manage-notes result for the model — the relevant branches of
-;; src/tool_execution.py format_tool_result (response/results/error + leftover
-;; structured keys as a data block; compact JSON where Python pretty-prints).
-(define formatter-handled-keys
-  '(response results error exit_code stdout stderr content size session_id name
-    model session_name success path action title doc_id version applied output))
-(define (manage-notes-result->text result)
-  (define main
-    (cond [(hash-has-key? result 'response) (hash-ref result 'response)]
-          [(hash-has-key? result 'results)  (hash-ref result 'results)]
-          [(hash-has-key? result 'error)    (format "**Error:** ~a" (hash-ref result 'error))]
-          [else ""]))
-  (define extra (for/hasheq ([(k v) (in-hash result)]
-                             #:unless (memq k formatter-handled-keys))
-                  (values k v)))
-  (if (zero? (hash-count extra))
-      main
-      (string-append main "\n**data:**\n```json\n" (jsexpr->string extra) "\n```")))
+;; result rendering lives in domain/tools/result.rkt (tool-result->text),
+;; shared by all DB-backed tool handlers.

@@ -21,17 +21,21 @@
          "../domain/agent/prompt.rkt"
          "../domain/tools/dsl.rkt"
          "../domain/tools/core-tools.rkt"   ; registers the ported tools
+         "../domain/tools/result.rkt"       ; tool-result->text
          "../domain/notes.rkt"              ; manage_notes handler
+         "../domain/tasks.rkt"              ; manage_tasks handler
          "../config.rkt")
 
 ;; DB-backed tools are wired here (not in exec.rkt's default-handlers) because
 ;; they need the app database — exec.rkt stays config-free. Owner is #f: the
 ;; agent CLI has no auth identity (the Python agent's owner=None path).
+(define (db-tool fn)
+  (lambda (content)
+    (call-with-app-db (lambda (conn) (tool-result->text (fn conn content #:owner #f))))))
 (define app-handlers
-  (hash-set default-handlers "manage_notes"
-            (lambda (content)
-              (call-with-app-db
-               (lambda (conn) (manage-notes-result->text (manage-notes conn content #:owner #f)))))))
+  (hash-set* default-handlers
+             "manage_notes" (db-tool manage-notes)
+             "manage_tasks" (db-tool manage-tasks)))
 
 (define (tool-names)
   (for/list ([s (in-list (all-tool-schemas))]) (hash-ref (hash-ref s 'function) 'name)))

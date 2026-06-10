@@ -155,6 +155,16 @@ The part that gets *better* in Racket, not just different. ~15–20k LOC of the
   one round emitted parallel add+list tool_calls, both executed against the
   app schema, correct final answer. This is the pattern for exposing the other
   ported domains (sessions/tasks/calendar/mcp) as agent tools.
+  **✅ Second vertical — `manage_tasks`:** same recipe (schema byte-identical,
+  12 tools now; converter aliases tasks/schedule; 30 fidelity cases). New
+  `domain/tasks.rkt` ports do_manage_tasks (list/create/edit/delete/pause/
+  resume; `run` faithfully returns Python's own no-scheduler error) plus the
+  slice of task_scheduler.py compute_next_run it calls — the legacy naive-UTC
+  daily/weekly/monthly math, verified case-by-case against the live Python
+  function with a fixed clock. Shared plumbing extracted on the way:
+  domain/util.rkt (jget/jtruthy/uuid4/now-stamp) and domain/tools/result.rkt
+  (tool-result->text, the format_tool_result port). Verified live against
+  qwen2.5:7b (create + list in one round, correct computed next_run).
   Remaining: the rest of `tool_implementations.py` and the full prompt text
   (both mechanical).
 - `mcp_servers/` (MCP protocol) → Racket structs + JSON.

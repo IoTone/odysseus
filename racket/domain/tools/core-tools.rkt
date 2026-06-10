@@ -62,6 +62,33 @@
   (new_string string #:description "Replacement text")
   (replace_all boolean #:optional #:description "Replace all occurrences instead of requiring a unique match"))
 
+(define-tool manage_tasks
+  #:description "Manage scheduled/automated tasks: list, create, edit, delete, pause, resume, or run tasks. Use this for ANY recurring/scheduled request ('every morning…', 'each day at 7:30', 'daily summarize…') — create a task rather than doing it once. Task types: llm (AI runs a prompt), research (runs the deep-research pipeline on a question), or action (built-in automation). Triggers can be time-based or event-based."
+  (action string #:enum ("list" "create" "edit" "delete" "pause" "resume" "run")
+          #:description "The action to perform")
+  (task_id string #:optional #:description "Task ID (for edit/delete/pause/resume/run)")
+  (name string #:optional #:description "Task name")
+  (prompt string #:optional #:description "The instruction (for task_type=llm) or the research question (for task_type=research). Required for both.")
+  (task_type string #:optional #:enum ("llm" "research" "action")
+             #:description "llm = AI runs your prompt; research = runs the deep-research pipeline on the prompt as a question; action = direct built-in function")
+  (action_name string #:optional
+               #:enum ("tidy_sessions" "tidy_documents" "consolidate_memory" "tidy_research"
+                       "summarize_emails" "draft_email_replies" "extract_email_events"
+                       "classify_events" "learn_sender_signatures"
+                       "test_skills" "audit_skills" "check_email_urgency")
+               #:description "Built-in action (for task_type=action)")
+  (trigger_type string #:optional #:enum ("schedule" "event")
+                #:description "schedule = time-based, event = count-based")
+  (schedule string #:optional #:enum ("once" "daily" "weekly" "monthly")
+            #:description "Schedule frequency (for trigger_type=schedule)")
+  (scheduled_time string #:optional #:description "HH:MM in UTC (for schedule triggers). Convert the user's stated local time using the UTC offset given in the 'Current date and time' context.")
+  (scheduled_day integer #:optional #:description "Day of week 0=Mon (weekly) or day of month (monthly)")
+  (trigger_event string #:optional
+                 #:enum ("session_created" "message_sent" "document_created" "memory_added" "research_completed" "email_received" "skill_added")
+                 #:description "Event name (for trigger_type=event)")
+  (trigger_count integer #:optional #:description "Fire every N events (for trigger_type=event)")
+  (output_target string #:optional #:description "Where results go. Defaults to 'session' (results land in a dedicated chat session the user reads) — this is the right choice for 'summarize for me' / 'send to me'. Do NOT go hunting for the user's email address; only use an email MCP tool name here if the user explicitly asked to be emailed AND an address is already known."))
+
 (define-tool manage_notes
   #:description "Manage notes and checklists (Google Keep-style): list, add, update, delete, toggle_item. IMPORTANT: For to-do lists / checklists, set note_type='checklist' and pass the items as the `checklist_items` array — do NOT serialize them into `content` as plain text. For freeform notes, use note_type='note' and put the body in `content`. `due_date` accepts natural language like 'tomorrow at 9am' (parsed in the user's timezone) and fires a notification — do not also create a calendar event for the same reminder."
   (action string #:enum ("list" "add" "update" "delete" "toggle_item")

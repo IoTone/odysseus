@@ -46,13 +46,19 @@
     "0,1,0,3,50,80,'2026-06-05 12:00:00.000000','2026-06-01 08:00:00.000000')"))
   ;; scheduled_tasks + task_runs
   (x c (string-append
-    "CREATE TABLE IF NOT EXISTS scheduled_tasks(id TEXT PRIMARY KEY,name TEXT,task_type TEXT,"
-    "action TEXT,prompt TEXT,schedule TEXT,scheduled_time TEXT,next_run TEXT,last_run TEXT,status TEXT,"
-    "model TEXT,run_count INT,cron_expression TEXT,endpoint_url TEXT,session_id TEXT,webhook_token TEXT)"))
+    "CREATE TABLE IF NOT EXISTS scheduled_tasks(id TEXT PRIMARY KEY,owner TEXT,name TEXT,task_type TEXT,"
+    "action TEXT,prompt TEXT,schedule TEXT,scheduled_time TEXT,scheduled_day INT,scheduled_date TEXT,"
+    "trigger_type TEXT,trigger_event TEXT,trigger_count INT,trigger_counter INT,"
+    "next_run TEXT,last_run TEXT,status TEXT,output_target TEXT,"
+    "model TEXT,run_count INT,cron_expression TEXT,endpoint_url TEXT,session_id TEXT,webhook_token TEXT,"
+    "then_task_id TEXT,crew_member_id TEXT,character_id TEXT,max_steps INT,email_results INT,"
+    "notifications_enabled INT,created_at TEXT,updated_at TEXT)"))
   (x c (string-append
     "INSERT OR IGNORE INTO scheduled_tasks(id,name,task_type,prompt,schedule,scheduled_time,next_run,"
-    "status,model,run_count,webhook_token) VALUES('seed-task-1','Nightly digest','llm',"
-    "'Summarize today','daily','02:00','2026-06-10 02:00:00.000000','active','gpt',2,'tok')"))
+    "status,model,run_count,webhook_token,trigger_type,created_at,updated_at) "
+    "VALUES('seed-task-1','Nightly digest','llm',"
+    "'Summarize today','daily','02:00','2026-06-10 02:00:00.000000','active','gpt',2,'tok',"
+    "'schedule','2026-06-01 08:00:00.000000','2026-06-01 08:00:00.000000')"))
   (x c (string-append
     "CREATE TABLE IF NOT EXISTS task_runs(id TEXT PRIMARY KEY,task_id TEXT,started_at TEXT,"
     "finished_at TEXT,status TEXT,result TEXT)"))
