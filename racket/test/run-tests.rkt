@@ -19,6 +19,8 @@
          "../domain/notes.rkt"      ; web-shape route serializer
          "../domain/tasks.rkt"      ; manage_tasks agent tool
          "../domain/integrations.rkt" ; manage_{endpoints,mcp,webhooks,tokens}
+         "../domain/documents.rkt"  ; manage_documents agent tool
+         "../domain/settings-tool.rkt" ; manage_settings agent tool
          "../domain/tools/dsl.rkt"        ; tool-schema DSL
          "../domain/tools/core-tools.rkt"    ; registers the ported tools on load
          "../domain/tools/convert.rkt"       ; native-call → ToolBlock converter
@@ -390,7 +392,10 @@
       ;; params without description omit the key entirely (e.g. these actions)
       (check-false (hash-has-key?
                     (hash-ref (hash-ref (params 'manage_tokens) 'properties) 'action) 'description))
-      (check-equal? (length (all-tool-schemas)) 16))
+      ;; type-less params (manage_settings.value) omit the "type" key
+      (check-false (hash-has-key?
+                    (hash-ref (hash-ref (params 'manage_settings) 'properties) 'value) 'type))
+      (check-equal? (length (all-tool-schemas)) 18))
 
     (test-case "native function-call → ToolBlock converter"
       (define (conv n a) (function-call->tool-block n a))
@@ -591,6 +596,75 @@
       (check-true (string-contains? (hash-ref (manage-tokens c "{\"action\":\"create\"}") 'error) "bcrypt"))
       (check-equal? (hash-ref (manage-tokens c "{\"action\":\"delete\",\"token_id\":\"t1\"}") 'response)
                     "Deleted token 'CI token'")
+      (disconnect c))
+
+    (test-case "manage_documents + manage_settings tools"
+      (define c (sqlite3-connect #:database 'memory))
+      (query-exec c (string-append
+        "CREATE TABLE documents(id TEXT PRIMARY KEY,session_id TEXT,title TEXT,language TEXT,"
+        "current_content TEXT,version_count INT,is_active INT,archived INT,owner TEXT,"
+        "created_at TEXT,updated_at TEXT)"))
+      (query-exec c (string-append
+        "INSERT INTO documents(id,title,language,current_content,is_active,owner,created_at,updated_at)"
+        " VALUES('d1','Meeting notes','markdown','# Standup',1,'alice',"
+        "'2026-06-01 10:00:00.000000','2026-06-08 10:00:00.000000')"))
+      ;; strict owner scoping: no owner → zero rows (Python filters false())
+      (check-equal? (hash-ref (manage-documents c "{\"action\":\"list\"}") 'response)
+                    "No documents found.")
+      (define now (find-seconds 0 0 12 9 6 2026 #f))   ; 2026-06-09 12:00 UTC
+      (define l1 (manage-documents c "{\"action\":\"list\"}" #:owner "alice" #:now now))
+      (check-true (string-contains? (hash-ref l1 'response)
+                    "- [Meeting notes](#document-d1) — markdown, 9 chars, updated 1d ago ← most recent"))
+      (check-equal? (hash-ref (manage-documents c "{\"action\":\"list\",\"search\":\"zzz\"}" #:owner "alice")
+                              'response)
+                    "No documents found matching 'zzz'.")
+      ;; read renders the anchor + fenced preview
+      (define r1 (manage-documents c "{\"action\":\"read\",\"id\":\"d1\"}" #:owner "alice"))
+      (check-true (string-contains? (hash-ref r1 'response) "```markdown\n# Standup\n```"))
+      (check-false (hash-ref (hash-ref r1 'document) 'truncated))
+      ;; delete soft-archives; falls back to most-recent when no id given
+      (check-equal? (hash-ref (manage-documents c "{\"action\":\"delete\"}" #:owner "alice") 'response)
+                    "Deleted document 'Meeting notes'")
+      (check-equal? (query-value c "SELECT is_active FROM documents WHERE id='d1'") 0)
+      (check-equal? (hash-ref (manage-documents c "{\"action\":\"tidy\"}" #:owner "alice") 'exit_code) 1)
+      ;; settings: file store under a temp dir
+      (define sdir (make-temporary-file "odyset~a" 'directory))
+      (define spath (build-path sdir "settings.json"))
+      (define (st s) (manage-settings c spath s))
+      ;; set via friendly alias + endpoint-model resolution machinery (no endpoints table needed
+      ;; for non-model keys); bool coercion; enum guard; secret + structured refusals
+      (query-exec c (string-append
+        "CREATE TABLE model_endpoints(id TEXT PRIMARY KEY,name TEXT,base_url TEXT,api_key TEXT,"
+        "is_enabled INT,cached_models TEXT,created_at TEXT,updated_at TEXT)"))
+      (check-equal? (hash-ref (st "{\"action\":\"set\",\"key\":\"search engine\",\"value\":\"brave\"}") 'response)
+                    "Set search_provider = brave.")
+      (check-equal? (hash-ref (st "{\"action\":\"get\",\"key\":\"search engine\"}") 'response)
+                    "search_provider = brave")
+      (check-equal? (hash-ref (st "{\"action\":\"set\",\"key\":\"tts\",\"value\":\"off\"}") 'response)
+                    "Set tts_enabled = False.")
+      (check-equal? (hash-ref (st "{\"action\":\"set\",\"key\":\"image quality\",\"value\":\"ultra\"}") 'error)
+                    "image_quality must be one of: low, medium, high.")
+      (check-true (string-contains? (hash-ref (st "{\"action\":\"set\",\"key\":\"brave_api_key\",\"value\":\"x\"}") 'response)
+                                    "credential/secret"))
+      (check-true (string-contains? (hash-ref (st "{\"action\":\"set\",\"key\":\"keybinds\",\"value\":\"x\"}") 'response)
+                                    "structured setting"))
+      ;; model key resolves endpoint+model from cached lists
+      (query-exec c (string-append
+        "INSERT INTO model_endpoints(id,name,base_url,is_enabled,cached_models) "
+        "VALUES('ep1','Local','http://x',1,'[\"qwen2.5:7b-instruct\",\"phi3:latest\"]')"))
+      (check-equal? (hash-ref (st "{\"action\":\"set\",\"key\":\"default model\",\"value\":\"qwen 2.5 7b\"}") 'response)
+                    "Set default_model = qwen2.5:7b-instruct (endpoint ep1).")
+      ;; reset, unknown key, tool toggles
+      (check-equal? (hash-ref (st "{\"action\":\"reset\",\"key\":\"search engine\"}") 'response)
+                    "Reset search_provider to default (searxng).")
+      (check-true (string-prefix? (hash-ref (st "{\"action\":\"get\",\"key\":\"bogus_key\"}") 'error)
+                                  "Unknown setting 'bogus_key'."))
+      (check-true (string-contains? (hash-ref (st "{\"action\":\"disable_tool\",\"tool\":\"shell\"}") 'response)
+                                    "Disabled shell (bash). Now disabled: bash."))
+      (check-equal? (hash-ref (st "{\"action\":\"list_tools\"}") 'disabled) '("bash"))
+      (check-true (string-contains? (hash-ref (st "{\"action\":\"enable_tool\",\"tool\":\"shell\"}") 'response)
+                                    "Now disabled: (none)."))
+      (delete-directory/files sdir)
       (disconnect c))
 
     (test-case "agent loop — control spine (done / tools / max-rounds)"

@@ -30,7 +30,7 @@ the app depends on them.
         main.rkt                    web-server: /health, /api/notes, /api/sessions
         proxy.rkt                   strangler reverse proxy (RACKET_PREFIXES → Racket, rest → Python)
         concurrency-demo.rkt        proof: native evented I/O, no libuv
-      test/run-tests.rkt            portable rackunit suite (19 cases)
+      test/run-tests.rkt            portable rackunit suite (20 cases)
       info.rkt                      the app package
 
 ## Install Racket
@@ -91,7 +91,7 @@ build *is* a passing test run. Installed commands are wrappers around nixpkgs'
     # the explicit list in VALIDATION.md — PowerShell doesn't expand *.rkt)
     raco make config.rkt cli/*.rkt domain/*.rkt server/*.rkt test/*.rkt
 
-    racket test/run-tests.rkt                 # the suite (expect: 19 success(es))
+    racket test/run-tests.rkt                 # the suite (expect: 20 success(es))
     racket cli/odysseus-logs.rkt list --pretty
     racket cli/odysseus-calendar.rkt calendars --pretty   # DB CLI example
     racket server/main.rkt --port 8099 &      # then: curl localhost:8099/{health,api/notes}
@@ -115,9 +115,12 @@ prompt with up to ~7 tools, but returns empty content with the full agent prompt
 plus `OPENAI_API_KEY`.
 
 DB-backed tools (`manage_notes`, `manage_tasks`, `manage_endpoints`,
-`manage_mcp`, `manage_webhooks`, `manage_tokens`) operate on the app database
-(`DATABASE_URL`, default `data/app.db`); run `racket test/seed-db.rkt` first on
-a fresh checkout to create the schema.
+`manage_mcp`, `manage_webhooks`, `manage_tokens`, `manage_documents`,
+`manage_settings`) operate on the app database (`DATABASE_URL`, default
+`data/app.db`) and `data/settings.json`; run `racket test/seed-db.rkt` first on
+a fresh checkout to create the schema. Pass `--owner <user>` to act as an
+identity (the CLI analog of the `X-Odysseus-User` trusted header) — documents
+are strictly owner-scoped and invisible without it.
 
 ## Fidelity check (the porting contract)
 
@@ -141,7 +144,7 @@ On Linux, build these with the **official** Racket, not Homebrew (the
 Fastest signal → fullest:
 
     raco make config.rkt cli/*.rkt domain/*.rkt server/*.rkt test/*.rkt   # 1. compiles?
-    racket test/run-tests.rkt                                # 2. behavior (19 tests)
+    racket test/run-tests.rkt                                # 2. behavior (20 tests)
     ../ci/fidelity.sh                                        # 3. byte-identical to Python (from repo root)
 
 For hands-on, step-by-step verification (CLIs, server, packaging, fidelity,

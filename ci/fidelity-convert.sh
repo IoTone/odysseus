@@ -43,6 +43,10 @@ CASES='[
  ["webhooks",{"action":"list"}],
  ["manage_tokens",{"action":"list"}],
  ["tokens",{"action":"delete","token_id":"t1"}],
+ ["manage_documents",{"action":"list","search":"notes"}],
+ ["documents",{"action":"delete","document_id":"d1"}],
+ ["manage_settings",{"action":"set","key":"search engine","value":"brave"}],
+ ["preferences",{"action":"list"}],
  ["send_email",{"to":"a@b.c"}],
  ["frobnicate",{}],
  ["bash","NOT JSON"]

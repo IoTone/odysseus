@@ -25,22 +25,34 @@
          "../domain/notes.rkt"              ; manage_notes handler
          "../domain/tasks.rkt"              ; manage_tasks handler
          "../domain/integrations.rkt"       ; manage_{endpoints,mcp,webhooks,tokens}
+         "../domain/documents.rkt"          ; manage_documents handler
+         "../domain/settings-tool.rkt"      ; manage_settings handler
          "../config.rkt")
 
 ;; DB-backed tools are wired here (not in exec.rkt's default-handlers) because
-;; they need the app database — exec.rkt stays config-free. Owner is #f: the
-;; agent CLI has no auth identity (the Python agent's owner=None path).
-(define (db-tool fn)
-  (lambda (content)
-    (call-with-app-db (lambda (conn) (tool-result->text (fn conn content #:owner #f))))))
-(define app-handlers
+;; they need the app database — exec.rkt stays config-free. Identity comes from
+;; --owner (the CLI analog of the X-Odysseus-User trusted header); without it,
+;; owner-scoped data behaves like Python's owner=None path (notes/tasks are
+;; unscoped, documents are invisible).
+(define (make-app-handlers owner)
+  (define (db-tool fn)
+    (lambda (content)
+      (call-with-app-db (lambda (conn) (tool-result->text (fn conn content #:owner owner))))))
   (hash-set* default-handlers
              "manage_notes" (db-tool manage-notes)
              "manage_tasks" (db-tool manage-tasks)
              "manage_endpoints" (db-tool manage-endpoints)
              "manage_mcp" (db-tool manage-mcp)
              "manage_webhooks" (db-tool manage-webhooks)
-             "manage_tokens" (db-tool manage-tokens)))
+             "manage_tokens" (db-tool manage-tokens)
+             "manage_documents" (db-tool manage-documents)
+             "manage_settings"
+             (lambda (content)
+               (call-with-app-db
+                (lambda (conn)
+                  (tool-result->text
+                   (manage-settings conn (build-path (data-dir) "settings.json") content
+                                    #:owner owner)))))))
 
 (define (tool-names)
   (for/list ([s (in-list (all-tool-schemas))]) (hash-ref (hash-ref s 'function) 'name)))
@@ -70,8 +82,9 @@
   (define model (or (opt a "--model") (getenv "LLM_MODEL")))
   (define api-key (or (getenv "OPENAI_API_KEY") (getenv "LLM_API_KEY")))
   (define max-rounds (let ([m (opt a "--max-rounds")]) (if m (or (string->number m) 12) 12)))
+  (define owner (opt a "--owner"))   ; trusted identity, like the X-Odysseus-User header
   ;; prompt = first positional token that isn't a flag or a flag's value
-  (define flag-vals (filter values (map (lambda (f) (opt a f)) '("--endpoint" "--model" "--max-rounds"))))
+  (define flag-vals (filter values (map (lambda (f) (opt a f)) '("--endpoint" "--model" "--max-rounds" "--owner"))))
   (define prompt (for/first ([x (in-list a)]
                              #:when (and (not (flag-token? x)) (not (member x flag-vals)))) x))
   (unless endpoint (fail "set --endpoint or LLM_ENDPOINT (OpenAI-compatible /v1/chat/completions URL)" #:code 2))
@@ -86,7 +99,7 @@
   (define result
     (run-agent (list (hasheq 'role "system" 'content (assemble-prompt #:tools (tool-names)))
                      (hasheq 'role "user" 'content prompt))
-               #:llm llm #:exec (make-exec #:handlers app-handlers) #:max-rounds max-rounds))
+               #:llm llm #:exec (make-exec #:handlers (make-app-handlers owner)) #:max-rounds max-rounds))
   (emit (hasheq 'status (symbol->string (agent-result-status result))
                 'rounds (agent-result-rounds result)
                 'final (final-text result)

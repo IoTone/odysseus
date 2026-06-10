@@ -38,7 +38,9 @@
    "manage_endpoints" "- `manage_endpoints` — model API endpoints (actions: list/add/delete/enable/disable). `base_url` required for add."
    "manage_mcp" "- `manage_mcp` — MCP tool servers (actions: list/add/delete/enable/disable/reconnect/list_tools). add needs `name` + `command` (+`args`/`env`)."
    "manage_webhooks" "- `manage_webhooks` — webhooks (actions: list/add/delete/enable/disable). add needs a public http(s) `url`; `events` is comma-separated."
-   "manage_tokens" "- `manage_tokens` — API access tokens (actions: list/create/delete)."))
+   "manage_tokens" "- `manage_tokens` — API access tokens (actions: list/create/delete)."
+   "manage_documents" "- `manage_documents` — documents (actions: list/delete/tidy; list supports `search`/`language`). Owner-scoped: needs an identity."
+   "manage_settings" "- `manage_settings` — user settings (actions: list/get/set/delete) and tool toggles (disable_tool/enable_tool/list_tools). Friendly key aliases work ('voice', 'search engine', 'default model')."))
 
 ;; assemble-prompt: base + the guidance for the enabled (and not-disabled) tools.
 ;; #:compact? collapses tool guidance to a bare name list.

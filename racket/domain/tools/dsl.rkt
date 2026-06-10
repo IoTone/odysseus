@@ -40,8 +40,10 @@
 ;; (array of objects, built by object-spec from #:items-of).
 (define (param name type #:description [desc #f] #:required? [req? #t]
                #:enum [enum #f] #:items [items #f])
-  (define h0 (let ([base (hasheq 'type (symbol->string type))])
-               (if desc (hash-set base 'description desc) base)))   ; omit when absent (some Python params have none)
+  ;; `_` as the type omits the "type" key (e.g. manage_settings.value is
+  ;; intentionally untyped); a missing description omits that key too.
+  (define h0 (let ([base (if (eq? type '_) (hasheq) (hasheq 'type (symbol->string type)))])
+               (if desc (hash-set base 'description desc) base)))
   (define h1 (if enum  (hash-set h0 'enum enum) h0))
   (define h2 (cond [(symbol? items) (hash-set h1 'items (hasheq 'type (symbol->string items)))]
                    [items           (hash-set h1 'items items)]

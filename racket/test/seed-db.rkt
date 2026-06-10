@@ -92,6 +92,14 @@
   (x c (string-append
     "CREATE TABLE IF NOT EXISTS api_tokens(id TEXT PRIMARY KEY,owner TEXT,name TEXT,token_hash TEXT,"
     "token_prefix TEXT,scopes TEXT,is_active INT,last_used_at TEXT,created_at TEXT,updated_at TEXT)"))
+  (x c (string-append
+    "CREATE TABLE IF NOT EXISTS documents(id TEXT PRIMARY KEY,session_id TEXT,title TEXT,"
+    "language TEXT,current_content TEXT,version_count INT,is_active INT,archived INT,owner TEXT,"
+    "created_at TEXT,updated_at TEXT)"))
+  (x c (string-append
+    "INSERT OR IGNORE INTO documents(id,title,language,current_content,version_count,is_active,"
+    "archived,owner,created_at,updated_at) VALUES('seed-doc-1','Meeting notes','markdown',"
+    "'# Standup\nblockers: none',1,1,0,'alice','2026-06-01 10:00:00.000000','2026-06-01 10:00:00.000000')"))
   ;; calendars + events
   (x c "CREATE TABLE IF NOT EXISTS calendars(id TEXT PRIMARY KEY,name TEXT,color TEXT,source TEXT,created_at TEXT)")
   (x c "INSERT OR IGNORE INTO calendars VALUES('seed-cal-1','Personal','#5b8abf','local','2026-01-01 00:00:00.000000')")

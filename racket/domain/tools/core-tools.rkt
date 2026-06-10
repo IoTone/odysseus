@@ -140,6 +140,21 @@
   (token_id string #:optional #:description "Token ID (for delete)")
   (name string #:optional #:description "Token name (for create)"))
 
+(define-tool manage_documents
+  #:description "Manage documents: list all documents (with optional search/language filter), delete documents, or run tidy cleanup."
+  (action string #:enum ("list" "delete" "tidy"))
+  (document_id string #:optional #:description "Document ID (for delete)")
+  (search string #:optional #:description "Search query (for list)")
+  (language string #:optional #:description "Filter by language (for list)")
+  (limit integer #:optional #:description "Max results (for list, default 50)"))
+
+(define-tool manage_settings
+  #:description "Manage user preferences and settings. Use `disable_tool`/`enable_tool`/`list_tools` to turn individual tools on or off globally (e.g. shell, search, browser, documents, memory, skills, images, tasks, notes, calendar, email). Use list/get/set/delete for free-form preferences."
+  (action string #:enum ("list" "get" "set" "delete" "disable_tool" "enable_tool" "list_tools"))
+  (key string #:optional #:description "Setting key (for get/set/delete)")
+  (value _ #:optional #:description "Setting value (for set) — can be string, number, boolean, or object")
+  (tool string #:optional #:description "Tool name to disable/enable (for disable_tool/enable_tool). Accepts aliases: shell, search, browser, documents, memory, skills, images, tasks, notes, calendar, email — or a raw tool name like 'bash' or 'web_search'."))
+
 (module+ main
   (require json)
   (write-json (all-tool-schemas))

@@ -165,6 +165,25 @@ The part that gets *better* in Racket, not just different. ~15–20k LOC of the
   domain/util.rkt (jget/jtruthy/uuid4/now-stamp) and domain/tools/result.rkt
   (tool-result->text, the format_tool_result port). Verified live against
   qwen2.5:7b (create + list in one round, correct computed next_run).
+  **✅ manage_* sweep (18 tools total, all byte-identical schemas):**
+  - `manage_{endpoints,mcp,webhooks,tokens}` (domain/integrations.rkt): pure
+    CRUD + Python's own no-runtime fallbacks (no MCP manager; bcrypt-less
+    token create refuses with directions). Webhook SSRF guard ported (literal
+    IPv4/IPv6 private ranges + fail-closed DNS).
+  - `manage_documents` (domain/documents.rkt): list/read/delete (soft) with
+    STRICT owner scoping (Python returns zero rows for owner=None) — the agent
+    CLI grew `--owner`, the trusted-header identity analog. `tidy` is
+    LLM-orchestrated upstream → actionable error.
+  - `manage_settings` (domain/settings-tool.rkt): the real settings store
+    (data/settings.json merged over DEFAULT_SETTINGS — all 61 defaults
+    transcribed), friendly aliases, secret masking + refusal, structured-
+    setting refusal, bool/int coercion, enums, endpoint-model resolution from
+    cached model lists, and disable_tool/enable_tool/list_tools toggles.
+  - Out of scope, documented: `manage_session`/`manage_memory` (live session
+    manager + memory service via dispatch_ai_tool), `manage_contact`/
+    `resolve_contact` (CardDAV HTTP client, like email), `manage_skills` and
+    `manage_calendar` (next up: skills is disk+DB; calendar needs the NL
+    datetime parser).
   Remaining: the rest of `tool_implementations.py` and the full prompt text
   (both mechanical).
 - `mcp_servers/` (MCP protocol) → Racket structs + JSON.
