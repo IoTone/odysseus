@@ -33,6 +33,20 @@
   (hash "create" "create_event" "update" "update_event"
         "delete" "delete_event" "list" "list_events"))
 
+;; Python `a or b or … or z`: first jtruthy operand, else the LAST operand's
+;; value ('null when that key is missing/None). jtruthy gives Python falsiness
+;; (None/""/0/#f/'() are false), which Racket's own `or` does not.
+(define (py-or-last args . keys)
+  (let loop ([ks keys])
+    (define v (hash-ref args (car ks) 'null))
+    (cond [(null? (cdr ks)) v]
+          [(jtruthy v) v]
+          [else (loop (cdr ks))])))
+
+;; Python `(a or b or … or "") or None`: first jtruthy operand, else #f.
+(define (first-truthy args . keys)
+  (for/or ([k (in-list keys)]) (let ([v (hash-ref args k 'null)]) (and (jtruthy v) v))))
+
 ;; {base}::{suffix} → base; errors match Python's ValueError text
 (define (resolve-base-uid uid)
   (cond
@@ -50,17 +64,24 @@
                        (and v (not (eq? v 'null)) (not (equal? v "")))))
     (hash-ref args n)))
 
-;; reminder minutes from args (or a "remind me 10 min" description)
+;; reminder minutes from args (or a "remind me 10 min" description).
+;; Faithful to Python's _reminder_minutes, whose `a or b or c or d or e`
+;; chain skips FALSY values (None/""/0/False) and yields the last operand
+;; when all are falsy — and whose `raw in (None, "", False)` membership test
+;; also catches numeric 0 (0 == False in Python). Racket truthiness differs
+;; (0 and "" are truthy), so this is spelled out rather than using `or`.
 (define (reminder-minutes args)
-  (define raw0 (or (jget args 'reminder_minutes) (jget args 'remind_before_minutes)
-                   (or (jget args 'alarm_minutes) (jget args 'reminder) (jget args 'alarm))))
+  (define (g k) (hash-ref args k 'null))                ; .get(k) → 'null for None/missing
+  (define raw0
+    (py-or-last args 'reminder_minutes 'remind_before_minutes 'alarm_minutes 'reminder 'alarm))
   (define raw
-    (if (or (eq? raw0 #f) (equal? raw0 ""))
-        (let ([desc (format "~a" (or (jget args 'description) ""))])
+    (if (or (eq? raw0 'null) (equal? raw0 ""))
+        (let ([desc (let ([d (g 'description)]) (if (eq? d 'null) "" (format "~a" d)))])
           (if (regexp-match? #px"(?i:\\b(remind|reminder|alarm)\\b)" desc) desc raw0))
         raw0))
   (cond
-    [(or (eq? raw #f) (equal? raw "")) #f]
+    ;; raw in (None, "", False) — includes numeric 0/0.0 since 0 == False in Python
+    [(or (eq? raw 'null) (equal? raw "") (eq? raw #f) (and (number? raw) (zero? raw))) #f]
     [(eq? raw #t) 10]
     [(number? raw) (max 0 (inexact->exact (truncate raw)))]
     [else
@@ -343,9 +364,7 @@
                       'reminder_skipped_reason (or skip-reason 'null)
                       'duplicate #t 'exit_code 0)]
              [else
-              (define event-type (let ([t (or (jget args 'event_type) (jget args 'tag)
-                                              (or (jget args 'category) (jget args 'type)))])
-                                   (and (jtruthy t) t)))
+              (define event-type (first-truthy args 'event_type 'tag 'category 'type))
               (define importance (or (jget args 'importance) "normal"))
               (define uid (uuid4))
               (query-exec conn
@@ -356,14 +375,14 @@
                 uid (car cal) summary (event-description args minutes-before)
                 (or (jget args 'location) "")
                 (naive->stamp dtstart) (naive->stamp dtend)
-                (if all-day? 1 0) (if (and dtstart-utc? (not all-day?)) 1 0)
+                (if all-day? 1 0) (if (and is-utc? (not all-day?)) 1 0)
                 (or (jget args 'rrule) "") importance (or-sql-null event-type)
                 (now-stamp) (now-stamp))
               (define-values (note-id skip-reason)
                 (if minutes-before
                     (create-calendar-reminder! conn owner summary (or (jget args 'location) "")
                                                dtstart all-day? minutes-before
-                                               (and dtstart-utc? (not all-day?))
+                                               (and is-utc? (not all-day?))
                                                #:now-local now-local #:now-utc now-utc)
                     (values #f #f)))
               (define tag-blurb (if event-type (format " [~a]" event-type) ""))
@@ -419,9 +438,13 @@
              (add! "dtend" (naive->stamp d)))
            (when (given? 'all_day)
              (add! "all_day" (if (jtruthy (hash-ref args 'all_day)) 1 0)))
-           (let ([tag (or (jget args 'event_type) (jget args 'tag)
-                          (or (jget args 'category) (jget args 'type)))])
-             (when tag (add! "event_type" (if (jtruthy tag) tag sql-null))))
+           ;; Python: _tag = (event_type or tag or category or type); if _tag is
+           ;; not None: ev.event_type = _tag or None. First jtruthy → set it;
+           ;; else fall to `type`'s value — present (even "") clears to NULL,
+           ;; missing/None skips entirely.
+           (let ([tag (py-or-last args 'event_type 'tag 'category 'type)])
+             (unless (eq? tag 'null)
+               (add! "event_type" (if (jtruthy tag) tag sql-null))))
            (when (given? 'importance) (add! "importance" (hash-ref args 'importance)))
            ;; (Python's update_event never applies rrule, despite the schema
            ;;  advertising it — kept bug-compatible.)

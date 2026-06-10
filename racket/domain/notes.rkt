@@ -11,7 +11,8 @@
          json
          racket/string
          db-kit
-         "util.rkt")
+         "util.rkt"
+         "nl-datetime.rkt")        ; parse-due-for-user (NL → ISO)
 
 (provide notes-cols note->jsexpr list-notes        ; CLI shape (Unix tool)
          note->web-jsexpr list-notes-web           ; HTTP shape (matches routes/note_routes.py)
@@ -116,10 +117,14 @@
 
 ;; ---- agent tool: manage_notes -----------------------------------------------
 ;; Port of src/tool_implementations.py do_manage_notes — CRUD on notes and
-;; checklists driven by the model's JSON arguments. One deliberate divergence:
-;; due_date is stored as given (ISO passthrough); the Python natural-language
-;; parser (parse_due_for_user) is not ported — its own failure path stores the
-;; raw value too, so passthrough IS Python's fallback behavior.
+;; checklists driven by the model's JSON arguments. due_date is parsed through
+;; parse-due-for-user (today/tomorrow/ISO…), matching Python; on a parse
+;; failure it falls back to the raw value, exactly like Python's except branch.
+
+;; Python: try: parse_due_for_user(raw) except Exception: raw
+(define (parse-due raw)
+  (with-handlers ([exn:fail? (lambda (_) raw)])
+    (parse-due-for-user (format "~a" raw))))
 
 (define (or-untitled t) (if (jtruthy t) t "(untitled)"))
 (define (b->i v) (if (jtruthy v) 1 0))
@@ -222,7 +227,7 @@
   (define items-raw (let ([ci (jget args 'checklist_items)]) (if (eq? ci #f) (jget args 'items) ci)))
   (define items-json (if (eq? items-raw #f) #f (jsexpr->string items-raw)))
   (define note-type (or (jget args 'note_type) (if (jtruthy items-raw) "checklist" "note")))
-  (define due-iso (let ([d (jget args 'due_date)]) (and (jtruthy d) d)))   ; ISO passthrough
+  (define due-iso (let ([d (jget args 'due_date)]) (and (jtruthy d) (parse-due d))))
   ;; duplicate-reminder check: same due_date + (normalized) same title → keep existing
   (define dup
     (and due-iso (jtruthy title)
@@ -268,7 +273,8 @@
        (for/list ([f (in-list '(title content note_type color label))]
                   #:when (and (hash-has-key? args f) (not (eq? (hash-ref args f) 'null))))
          (cons (symbol->string f) (hash-ref args f))))
-     (define due-sets (if (jget args 'due_date) (list (cons "due_date" (jget args 'due_date))) '()))
+     (define due-sets (let ([d (jget args 'due_date)])
+                        (if d (list (cons "due_date" (parse-due d))) '())))
      (define items-raw (let ([ci (jget args 'checklist_items)]) (if (eq? ci #f) (jget args 'items) ci)))
      (define items-sets (if (eq? items-raw #f) '() (list (cons "items" (jsexpr->string items-raw)))))
      (define flag-sets
@@ -296,11 +302,25 @@
      (hasheq 'response (format "Deleted note: \"~a\"" (or-untitled (sql-or-empty (vector-ref n 2))))
              'exit_code 0)]))
 
+;; Python does `index = args.get("index", 0)` then `index < 0` — a string index
+;; raises TypeError and surfaces as an error (the model retries). We don't
+;; silently default a bad index to 0 (that would toggle the wrong item); we
+;; accept a real int or a numeric string and reject anything else.
+(define (toggle-index args)
+  (define i (jget args 'index))
+  (cond [(eq? i #f) 0]                                  ; missing/null → Python default 0
+        [(exact-integer? i) i]
+        [(and (number? i) (integer? i)) (inexact->exact i)]
+        [(and (string? i) (let ([n (string->number (string-trim i))])
+                            (and n (exact-integer? n) n))) => values]
+        [else 'bad]))
+
 (define (notes-tool-toggle conn args owner)
   (define note-id (or (jget args 'id) ""))
-  (define index (let ([i (jget args 'index)]) (if (number? i) i 0)))
+  (define index (toggle-index args))
   (define n (find-note conn note-id owner))
   (cond
+    [(eq? index 'bad) (err (format "Invalid item index: ~a" (jget args 'index)))]
     [(not n) (err (format "Note '~a' not found" note-id))]
     [(eq? n 'forbidden) (err "Note not found")]
     [(not (jtruthy (sql-or-empty (vector-ref n 3)))) (err "Note has no checklist items")]

@@ -803,6 +803,68 @@
                                   "Could not parse dtstart 'someday maybe':"))
       (disconnect c))
 
+    (test-case "review regressions — Python-truthiness & fidelity fixes"
+      ;; (A) calendar reminder_minutes=0 means NO reminder (Python's falsy `or`),
+      ;; and event_type:\"\" falls through to tag (not 'clear to NULL')
+      (define cc (sqlite3-connect #:database 'memory))
+      (query-exec cc (string-append
+        "CREATE TABLE calendars(id TEXT PRIMARY KEY,owner TEXT,name TEXT,color TEXT,source TEXT,"
+        "account_id TEXT,created_at TEXT,updated_at TEXT)"))
+      (query-exec cc (string-append
+        "CREATE TABLE calendar_events(uid TEXT PRIMARY KEY,calendar_id TEXT,summary TEXT,"
+        "description TEXT,location TEXT,dtstart TEXT,dtend TEXT,all_day INT,is_utc INT,rrule TEXT,"
+        "color TEXT,status TEXT,importance TEXT,event_type TEXT,last_pinged TEXT,created_at TEXT,updated_at TEXT)"))
+      (query-exec cc (string-append
+        "CREATE TABLE notes(id TEXT PRIMARY KEY,owner TEXT,title TEXT,content TEXT,items TEXT,"
+        "note_type TEXT,color TEXT,label TEXT,pinned INT,archived INT,due_date TEXT,source TEXT,"
+        "session_id TEXT,sort_order INT,repeat TEXT,created_at TEXT,updated_at TEXT)"))
+      (define cnow (find-seconds 0 30 14 10 6 2026 #f))
+      (define (cal s) (manage-calendar cc s #:owner "alice" #:now-local cnow #:now-utc cnow))
+      (define r0 (cal "{\"action\":\"create_event\",\"summary\":\"NoRemind\",\"dtstart\":\"tomorrow 9am\",\"reminder_minutes\":0,\"event_type\":\"\",\"tag\":\"work\"}"))
+      (check-false (string-contains? (hash-ref r0 'response) "reminder"))   ; reminder_minutes 0 → none
+      (check-equal? (hash-ref r0 'reminder_note_id) 'null)
+      (check-equal? (query-value cc "SELECT count(*) FROM notes") 0)        ; no reminder note created
+      (check-equal? (query-value cc "SELECT event_type FROM calendar_events WHERE summary='NoRemind'")
+                    "work")                                                 ; event_type:'' fell through to tag
+      ;; aware dtend folds is_utc onto the event even when dtstart is naive
+      (cal "{\"action\":\"create_event\",\"summary\":\"TZ\",\"dtstart\":\"2026-06-20T10:00:00\",\"dtend\":\"2026-06-20T15:00:00Z\"}")
+      (check-equal? (query-value cc "SELECT is_utc FROM calendar_events WHERE summary='TZ'") 1)
+      ;; update event_type:'' + tag:'work' sets work (not NULL)
+      (define tzuid (query-value cc "SELECT uid FROM calendar_events WHERE summary='TZ'"))
+      (cal (jsexpr->string (hasheq 'action "update_event" 'uid tzuid 'event_type "" 'tag "work")))
+      (check-equal? (query-value cc "SELECT event_type FROM calendar_events WHERE uid=?" tzuid) "work")
+      (disconnect cc)
+      ;; (B) notes due_date is parsed (NL → ISO), not stored verbatim
+      (define nc (sqlite3-connect #:database 'memory))
+      (query-exec nc (string-append
+        "CREATE TABLE notes(id TEXT PRIMARY KEY,owner TEXT,title TEXT,content TEXT,items TEXT,"
+        "note_type TEXT,color TEXT,label TEXT,pinned INT,archived INT,due_date TEXT,source TEXT,"
+        "session_id TEXT,sort_order INT,repeat TEXT,created_at TEXT,updated_at TEXT)"))
+      (manage-notes nc "{\"action\":\"add\",\"title\":\"Call\",\"due_date\":\"tomorrow at 9am\"}")
+      (check-true (regexp-match? #px"T09:00:00$" (query-value nc "SELECT due_date FROM notes WHERE title='Call'")))
+      ;; toggle_item rejects a non-numeric index instead of silently toggling item 0
+      (define ra (manage-notes nc "{\"action\":\"add\",\"title\":\"L\",\"checklist_items\":[{\"text\":\"a\"},{\"text\":\"b\"}]}"))
+      (define nid8 (substring (hash-ref ra 'note_id) 0 8))
+      (check-true (string-prefix? (hash-ref (manage-notes nc (jsexpr->string (hasheq 'action "toggle_item" 'id nid8 'index "x"))) 'error)
+                                  "Invalid item index"))
+      (check-equal? (hash-ref (manage-notes nc (jsexpr->string (hasheq 'action "toggle_item" 'id nid8 'index "1"))) 'response)
+                    "Item 'b' marked done")          ; numeric string still works
+      (disconnect nc)
+      ;; (C) tool-result->text caps the data block at 8000 chars (Python parity)
+      (define big (make-string 9000 #\x))
+      (define rendered (tool-result->text (hasheq 'response "ok" 'blob big)))
+      (check-true (< (string-length rendered) 8300))
+      (check-true (string-contains? rendered "truncated, "))
+      ;; (D) settings coerce accepts a float-typed JSON int (int(5.0)=5)
+      (define sc (sqlite3-connect #:database 'memory))
+      (query-exec sc "CREATE TABLE model_endpoints(id TEXT,cached_models TEXT,is_enabled INT)")
+      (define sdir (make-temporary-file "odyrr~a" 'directory))
+      (define spath (build-path sdir "settings.json"))
+      (check-equal? (hash-ref (manage-settings sc spath "{\"action\":\"set\",\"key\":\"search_result_count\",\"value\":5.0}") 'response)
+                    "Set search_result_count = 5.")
+      (delete-directory/files sdir)
+      (disconnect sc))
+
     (test-case "agent loop — control spine (done / tools / max-rounds)"
       (define exec-log (box '()))
       (define (exec b) (set-box! exec-log (cons (tool-block-type b) (unbox exec-log))) "RESULT")

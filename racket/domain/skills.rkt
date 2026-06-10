@@ -453,7 +453,7 @@
         #:verification (or (jget args 'verification) '())
         #:status (or (jget args 'status) "draft")
         #:version (or (jget args 'version) "1.0.0")
-        #:confidence (let ([c (jget args 'confidence)]) (if (number? c) c 0.8))
+        #:confidence (to-float (jget args 'confidence) 0.8)   ; Python float() parses "0.95"
         #:source (or (jget args 'source) "learned")
         #:teacher-model (jget args 'teacher_model)
         #:solution (or (jget args 'solution) "")
@@ -547,9 +547,9 @@
        [(not match) (err (format "Skill '~a' not found" name))]
        [else
         (define updates
-          (let ([c (jget args 'confidence)])
-            (if (number? c)
-                (hasheq 'status "published" 'confidence (max 0.0 (min 1.0 (exact->inexact c))))
+          (let ([c (jget args 'confidence)])           ; Python: if confidence is not None
+            (if c
+                (hasheq 'status "published" 'confidence (max 0.0 (min 1.0 (to-float c 0.0))))
                 (hasheq 'status "published"))))
         (skills-update m name updates #:owner owner)
         (hasheq 'results (format "✅ Published `~a`. It now appears in the skills index for future turns." name))])]))

@@ -24,6 +24,15 @@
   (define extra (for/hasheq ([(k v) (in-hash result)]
                              #:unless (memq k formatter-handled-keys))
                   (values k v)))
-  (if (zero? (hash-count extra))
-      main
-      (string-append main "\n**data:**\n```json\n" (jsexpr->string extra) "\n```")))
+  (cond
+    [(zero? (hash-count extra)) main]
+    [else
+     ;; Cap the structured payload like Python format_tool_result
+     ;; (src/tool_execution.py): a list_events/list over a populated DB can be
+     ;; hundreds of KB, which would otherwise blow the model's context window.
+     (define j (jsexpr->string extra))
+     (define capped (if (> (string-length j) 8000)
+                        (string-append (substring j 0 8000)
+                                       (format "\n... (truncated, ~a chars total)" (string-length j)))
+                        j))
+     (string-append main "\n**data:**\n```json\n" capped "\n```")]))

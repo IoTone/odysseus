@@ -162,21 +162,29 @@
      (string-join events ",")]))
 
 ;; ---- private/internal address detection (the SSRF guard) ----------------------
-;; Mirrors webhook_manager._ip_is_private over literal IPs; DNS hostnames are
-;; resolved (one address via net/dns vs Python's every-record — the delivery
-;; side re-validates with the full check) and unresolvable names fail closed.
+;; Mirrors webhook_manager._is_private_url: the internal-hostname blocklist +
+;; suffixes are checked before resolving, then private/reserved IPv4/IPv6 ranges
+;; over literal IPs. DNS hostnames are resolved (one address via net/dns vs
+;; Python's every-record — the delivery side re-validates with the full check)
+;; and unresolvable names fail closed.
 
 (define (ipv4-octets s)
   (define m (regexp-match #px"^([0-9]{1,3})\\.([0-9]{1,3})\\.([0-9]{1,3})\\.([0-9]{1,3})$" s))
   (and m (let ([os (map string->number (cdr m))]) (and (andmap (lambda (o) (<= o 255)) os) os))))
 
 (define (ipv4-private? os)
-  (define a (car os)) (define b (cadr os))
+  (define a (car os)) (define b (cadr os)) (define c (caddr os))
   (or (= a 0) (= a 10) (= a 127)                               ; unspecified/private/loopback
       (and (= a 172) (<= 16 b 31)) (and (= a 192) (= b 168))   ; private
       (and (= a 169) (= b 254))                                ; link-local
-      (and (= a 100) (<= 64 b 127))                            ; CGNAT (is_private in py>=3.11... kept: reserved-ish)
-      (>= a 224)))                                             ; multicast + reserved
+      (and (= a 100) (<= 64 b 127))                            ; CGNAT 100.64.0.0/10
+      ;; reserved/doc ranges Python's ipaddress.is_private also rejects
+      (and (= a 192) (= b 0) (= c 0))                          ; 192.0.0.0/24 IETF protocol
+      (and (= a 192) (= b 0) (= c 2))                          ; 192.0.2.0/24 TEST-NET-1
+      (and (= a 198) (<= 18 b 19))                             ; 198.18.0.0/15 benchmarking
+      (and (= a 198) (= b 51) (= c 100))                       ; 198.51.100.0/24 TEST-NET-2
+      (and (= a 203) (= b 0) (= c 113))                        ; 203.0.113.0/24 TEST-NET-3
+      (>= a 224)))                                             ; multicast 224/4 + reserved 240/4
 
 ;; parse an IPv6 literal into 8 16-bit groups, or #f. Handles :: expansion and
 ;; a trailing IPv4-mapped dotted quad.
@@ -219,8 +227,16 @@
     [(= (arithmetic-shift g0 -8) #xff) #t]                     ; ff00::/8 multicast
     [else #f]))
 
+;; internal hostnames/suffixes Python blocks BEFORE resolving (the resolver may
+;; hand back a public A record for a name meant to be internal — DNS rebinding)
+(define internal-hosts (list "localhost" "0.0.0.0" "metadata.google.internal" "metadata"))
+(define internal-suffixes (list ".local" ".internal" ".lan" ".intranet" ".localhost"))
+
 (define (host-private? host)
+  (define h (string-downcase host))
   (cond
+    [(member h internal-hosts) #t]
+    [(ormap (lambda (sfx) (string-suffix? h sfx)) internal-suffixes) #t]
     [(ipv4-octets host) => ipv4-private?]
     [(ipv6-groups host) => ipv6-private?]
     [else                                  ; DNS name — resolve; fail closed

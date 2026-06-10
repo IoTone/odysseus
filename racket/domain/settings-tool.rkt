@@ -177,9 +177,12 @@
          (and (member (string-downcase (string-trim (py-fmt value)))
                       '("true" "on" "yes" "1" "enable" "enabled")) #t))]
     [(exact-integer? default)
-     (cond [(exact-integer? value) value]
+     ;; Python int(value): accepts ints, floats (int(5.0)=5, truncates),
+     ;; booleans (int(True)=1), and integer-literal strings ("5" ok, "5.0" not).
+     (cond [(boolean? value) (if value 1 0)]
+           [(number? value) (inexact->exact (truncate value))]
            [(and (string? value) (let ([n (string->number (string-trim value))])
-                                   (and (exact-integer? n) n)))]
+                                   (and n (exact-integer? n) n)))]
            [else (error 'coerce "bad int")])]
     [else value]))
 
