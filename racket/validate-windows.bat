@@ -35,11 +35,15 @@ pushd "%SCRIPT_DIR%" || exit /b 1
 
 echo.
 echo == 2/4  byte-compile (explicit list; cmd/PowerShell don't expand *.rkt) ==
-raco make config.rkt cli/odysseus-logs.rkt cli/odysseus-preset.rkt cli/odysseus-signature.rkt cli/odysseus-notes.rkt cli/odysseus-sessions.rkt cli/odysseus-tasks.rkt cli/odysseus-research.rkt cli/odysseus-mcp.rkt cli/odysseus-calendar.rkt domain/notes.rkt domain/sessions.rkt server/main.rkt server/proxy.rkt test/run-tests.rkt test/seed-db.rkt || (echo [X] BUILD FAILED & popd & exit /b 1)
+rem raco make follows requires transitively, so the agent CLI + test suite pull
+rem in domain/{tasks,integrations,documents,settings-tool,util}.rkt and
+rem domain/{tools,agent}/*.rkt automatically.
+raco make config.rkt cli/odysseus-logs.rkt cli/odysseus-preset.rkt cli/odysseus-signature.rkt cli/odysseus-notes.rkt cli/odysseus-sessions.rkt cli/odysseus-tasks.rkt cli/odysseus-research.rkt cli/odysseus-mcp.rkt cli/odysseus-calendar.rkt cli/odysseus-agent.rkt domain/notes.rkt domain/sessions.rkt server/main.rkt server/proxy.rkt test/run-tests.rkt test/seed-db.rkt || (echo [X] BUILD FAILED & popd & exit /b 1)
 echo [ok] build clean
+racket cli/odysseus-agent.rkt --version || (echo [X] agent CLI failed to load & popd & exit /b 1)
 
 echo.
-echo == 3/4  test suite (expect: 10 success) ==
+echo == 3/4  test suite (expect: 20 success) ==
 racket test/run-tests.rkt || (echo [X] TESTS FAILED & popd & exit /b 1)
 
 echo.
@@ -52,6 +56,6 @@ popd
 echo.
 echo =====================================================
 echo  ALL GREEN - racket port validates on this Windows box
-echo  Report: version OK, build OK, suite=10, raco exe runs.
+echo  Report: version OK, build OK, suite=20, raco exe runs.
 echo =====================================================
 endlocal

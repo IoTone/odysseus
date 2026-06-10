@@ -116,7 +116,10 @@ raco pkg install --link --batch racket\pkgs\cli-kit racket\pkgs\db-kit racket\pk
 ### 3. Build (explicit file list — PowerShell does NOT expand `*.rkt` for raco)  *(cd into racket\)*
 ```powershell
 cd racket
-raco make config.rkt cli/odysseus-logs.rkt cli/odysseus-preset.rkt cli/odysseus-signature.rkt cli/odysseus-notes.rkt cli/odysseus-sessions.rkt cli/odysseus-tasks.rkt cli/odysseus-research.rkt cli/odysseus-mcp.rkt cli/odysseus-calendar.rkt domain/notes.rkt domain/sessions.rkt server/main.rkt server/proxy.rkt test/run-tests.rkt test/seed-db.rkt
+# (the agent CLI + test suite transitively compile domain/{tasks,integrations,
+#  documents,settings-tool,util}.rkt and domain/{tools,agent}/*.rkt)
+raco make config.rkt cli/odysseus-logs.rkt cli/odysseus-preset.rkt cli/odysseus-signature.rkt cli/odysseus-notes.rkt cli/odysseus-sessions.rkt cli/odysseus-tasks.rkt cli/odysseus-research.rkt cli/odysseus-mcp.rkt cli/odysseus-calendar.rkt cli/odysseus-agent.rkt domain/notes.rkt domain/sessions.rkt server/main.rkt server/proxy.rkt test/run-tests.rkt test/seed-db.rkt
+racket cli/odysseus-agent.rkt --version            # -> odysseus-agent 0.1.0
 ```
 Expect: no errors.
 
