@@ -45,14 +45,15 @@
         "manage_tokens" "manage_tokens" "tokens" "manage_tokens"
         "manage_documents" "manage_documents" "documents" "manage_documents"
         "manage_settings" "manage_settings" "settings" "manage_settings"
-        "preferences" "manage_settings"))
+        "preferences" "manage_settings"
+        "manage_skills" "manage_skills" "skills" "manage_skills" "skill" "manage_skills"))
 
 (define tool-tags
   (set "bash" "python" "web_search" "web_fetch" "read_file" "write_file" "edit_file"
        "grep" "glob" "ls" "create_document" "update_document" "edit_document"
        "suggest_document" "search_chats" "pipeline" "manage_memory" "manage_notes"
        "manage_tasks" "manage_endpoints" "manage_mcp" "manage_webhooks" "manage_tokens"
-       "manage_documents" "manage_settings"))
+       "manage_documents" "manage_settings" "manage_skills"))
 
 (define builtin-email
   (set "list_email_accounts" "send_email" "list_emails" "read_email" "reply_to_email"

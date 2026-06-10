@@ -47,6 +47,8 @@ CASES='[
  ["documents",{"action":"delete","document_id":"d1"}],
  ["manage_settings",{"action":"set","key":"search engine","value":"brave"}],
  ["preferences",{"action":"list"}],
+ ["manage_skills",{"action":"add","name":"open-pr","procedure":["push","gh pr create"]}],
+ ["skills",{"action":"view","name":"open-pr"}],
  ["send_email",{"to":"a@b.c"}],
  ["frobnicate",{}],
  ["bash","NOT JSON"]

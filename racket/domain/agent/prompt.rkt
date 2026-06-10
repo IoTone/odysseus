@@ -40,7 +40,8 @@
    "manage_webhooks" "- `manage_webhooks` — webhooks (actions: list/add/delete/enable/disable). add needs a public http(s) `url`; `events` is comma-separated."
    "manage_tokens" "- `manage_tokens` — API access tokens (actions: list/create/delete)."
    "manage_documents" "- `manage_documents` — documents (actions: list/delete/tidy; list supports `search`/`language`). Owner-scoped: needs an identity."
-   "manage_settings" "- `manage_settings` — user settings (actions: list/get/set/delete) and tool toggles (disable_tool/enable_tool/list_tools). Friendly key aliases work ('voice', 'search engine', 'default model')."))
+   "manage_settings" "- `manage_settings` — user settings (actions: list/get/set/delete) and tool toggles (disable_tool/enable_tool/list_tools). Friendly key aliases work ('voice', 'search engine', 'default model')."
+   "manage_skills" "- `manage_skills` — the SKILL.md library (actions: list/view/view_ref/add/edit/patch/publish/delete/search). Progressive disclosure: list first, view one, patch surgically; publish after verifying."))
 
 ;; assemble-prompt: base + the guidance for the enabled (and not-disabled) tools.
 ;; #:compact? collapses tool guidance to a bare name list.

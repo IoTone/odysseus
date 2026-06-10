@@ -21,6 +21,8 @@
          "../domain/integrations.rkt" ; manage_{endpoints,mcp,webhooks,tokens}
          "../domain/documents.rkt"  ; manage_documents agent tool
          "../domain/settings-tool.rkt" ; manage_settings agent tool
+         "../domain/skill-format.rkt" ; SKILL.md round-trip
+         "../domain/skills.rkt"     ; manage_skills agent tool
          "../domain/tools/dsl.rkt"        ; tool-schema DSL
          "../domain/tools/core-tools.rkt"    ; registers the ported tools on load
          "../domain/tools/convert.rkt"       ; native-call → ToolBlock converter
@@ -395,7 +397,7 @@
       ;; type-less params (manage_settings.value) omit the "type" key
       (check-false (hash-has-key?
                     (hash-ref (hash-ref (params 'manage_settings) 'properties) 'value) 'type))
-      (check-equal? (length (all-tool-schemas)) 18))
+      (check-equal? (length (all-tool-schemas)) 19))
 
     (test-case "native function-call → ToolBlock converter"
       (define (conv n a) (function-call->tool-block n a))
@@ -666,6 +668,68 @@
                                     "Now disabled: (none)."))
       (delete-directory/files sdir)
       (disconnect c))
+
+    (test-case "manage_skills tool — SKILL.md round-trip + CRUD lifecycle"
+      ;; format: parse → emit is stable (same fixture verified byte-identical
+      ;; to Python's own from_markdown→to_markdown round-trip)
+      (define md (string-join
+                  '("---" "name: open-pr-from-branch" "description: Open a GitHub PR"
+                    "version: 1.0.0" "category: dev" "tags: [git, github]" "status: published"
+                    "confidence: 0.92" "source: learned" "owner: alice"
+                    "created: \"2026-06-09T21:43:00Z\"" "---" ""
+                    "## When to Use" "" "User asks to open a PR." "" "## Procedure" ""
+                    "1. git push -u origin HEAD" "2. gh pr create --fill" "") "\n"))
+      (define rt (skill->markdown (skill-from-markdown md)))
+      (check-equal? (skill->markdown (skill-from-markdown rt)) rt)   ; fixpoint
+      (check-true (string-contains? rt "tags: [git, github]"))
+      (check-true (string-contains? rt "created: \"2026-06-09T21:43:00Z\""))  ; quoted (has ':')
+      (check-equal? (slugify "Open PR From Branch!") "open-pr-from-branch")
+      ;; tool lifecycle on a scratch data dir
+      (define dir (make-temporary-file "odysk~a" 'directory))
+      (define (run s #:owner [o #f]) (manage-skills dir s #:owner o))
+      (check-equal? (hash-ref (run "{\"action\":\"list\"}") 'results)
+                    "No skills yet. Create one with action='add'.")
+      (define a1 (run "{\"action\":\"add\",\"name\":\"Open PR From Branch\",\"description\":\"Open a GitHub PR\",\"category\":\"dev\",\"when_to_use\":\"User asks to open a PR\",\"procedure\":[\"git push -u origin HEAD\",\"gh pr create --fill\"]}"))
+      (check-true (string-prefix? (hash-ref a1 'results) "Created skill `open-pr-from-branch`"))
+      (check-true (string-contains? (hash-ref a1 'results) "DRAFT"))   ; draft verify hint
+      (check-true (file-exists? (build-path dir "skills" "dev" "open-pr-from-branch" "SKILL.md")))
+      ;; near-duplicate add dedupes instead of creating
+      (check-true (string-prefix?
+                   (hash-ref (run "{\"action\":\"add\",\"name\":\"open pr from branch\",\"description\":\"Open a GitHub PR now\",\"when_to_use\":\"User asks to open a PR\",\"procedure\":[\"git push -u origin HEAD\",\"gh pr create --fill\"]}")
+                             'results)
+                   "A near-identical skill already exists: `open-pr-from-branch`"))
+      ;; missing procedure/solution is rejected
+      (check-true (string-prefix? (hash-ref (run "{\"action\":\"add\",\"name\":\"x\"}") 'error)
+                                  "procedure (or solution body) is required"))
+      ;; patch: unique replace works, ambiguous old_string is refused
+      (check-equal? (hash-ref (run "{\"action\":\"patch\",\"name\":\"open-pr-from-branch\",\"old_string\":\"--fill\",\"new_string\":\"--fill --draft\"}")
+                              'results)
+                    "Patched skill `open-pr-from-branch`.")
+      (check-true (string-contains?
+                   (hash-ref (run "{\"action\":\"patch\",\"name\":\"open-pr-from-branch\",\"old_string\":\"r\",\"new_string\":\"R\"}")
+                             'error)
+                   "ambiguous"))
+      ;; publish flips status; search finds it; view returns raw SKILL.md
+      (check-true (string-prefix? (hash-ref (run "{\"action\":\"publish\",\"name\":\"open-pr-from-branch\"}") 'results)
+                                  "✅ Published"))
+      (check-true (string-contains? (hash-ref (run "{\"action\":\"list\"}") 'results) "## Published"))
+      (check-true (string-contains? (hash-ref (run "{\"action\":\"search\",\"query\":\"open a github pr\"}") 'results)
+                                    "**open-pr-from-branch**"))
+      (check-true (string-prefix? (hash-ref (run "{\"action\":\"view\",\"name\":\"open-pr-from-branch\"}") 'results)
+                                  "---\nname: open-pr-from-branch"))
+      ;; view_ref refuses path traversal
+      (check-true (hash-has-key? (run "{\"action\":\"view_ref\",\"name\":\"open-pr-from-branch\",\"path\":\"../../../etc/passwd\"}")
+                                 'error))
+      ;; owner scoping: alice's skill is invisible to bob (and to unscoped delete)
+      (run "{\"action\":\"add\",\"name\":\"alices-skill\",\"procedure\":[\"step\"]}" #:owner "alice")
+      (check-true (hash-has-key? (run "{\"action\":\"delete\",\"name\":\"alices-skill\"}" #:owner "bob") 'error))
+      (check-equal? (hash-ref (run "{\"action\":\"delete\",\"name\":\"alices-skill\"}" #:owner "alice") 'results)
+                    "Deleted skill `alices-skill`.")
+      (check-equal? (hash-ref (run "{\"action\":\"delete\",\"name\":\"open-pr-from-branch\"}") 'results)
+                    "Deleted skill `open-pr-from-branch`.")
+      (check-equal? (hash-ref (run "{\"action\":\"list\"}") 'results)
+                    "No skills yet. Create one with action='add'.")
+      (delete-directory/files dir))
 
     (test-case "agent loop — control spine (done / tools / max-rounds)"
       (define exec-log (box '()))

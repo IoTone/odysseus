@@ -140,6 +140,30 @@
   (token_id string #:optional #:description "Token ID (for delete)")
   (name string #:optional #:description "Token name (for create)"))
 
+(define-tool manage_skills
+  #:description "Read or modify the user's skill library. Skills are SKILL.md files (YAML frontmatter + structured body: When to Use / Procedure / Pitfalls / Verification) and follow a draft → published lifecycle. Use progressive disclosure: 'list' to see what exists, 'view' to load full content for a single skill, 'view_ref' for sub-files. Use 'patch' for surgical text edits and 'edit' for full rewrites. 'publish' once you've verified the procedure works. For add, always provide an explicit name slug and only tell the user the exact name returned by the tool."
+  (action string #:enum ("list" "view" "view_ref" "add" "edit" "patch" "publish" "delete" "search")
+          #:description "list = name+description summary; view = full SKILL.md; view_ref = sub-file under the skill dir; add = create; edit = full rewrite (content); patch = old_string→new_string; publish = flip status; delete; search = relevance match on published skills.")
+  (name string #:optional #:description "Slug/name of the skill. Required for add/view/view_ref/edit/patch/publish/delete. For add, choose the exact kebab-case name the user should see and report only the returned name.")
+  (path string #:optional #:description "Sub-path under the skill directory for view_ref (e.g. 'references/example.md').")
+  (description string #:optional #:description "One-line summary surfaced in the skills index (for add).")
+  (category string #:optional #:description "Organizational grouping like 'dev', 'email', 'system' (for add).")
+  (when_to_use string #:optional #:description "Trigger conditions in plain English (for add).")
+  (procedure array #:optional #:items string #:description "Numbered steps (for add).")
+  (pitfalls array #:optional #:items string #:description "Known failure modes + recovery (for add).")
+  (verification array #:optional #:items string #:description "How to confirm the procedure succeeded (for add).")
+  (tags array #:optional #:items string #:description "Keyword tags (for add).")
+  (platforms array #:optional #:items string #:description "Restrict to OSes (for add).")
+  (requires_toolsets array #:optional #:items string #:description "Hide unless these toolsets are active (for add).")
+  (fallback_for_toolsets array #:optional #:items string #:description "Hide when these toolsets are active (for add).")
+  (status string #:optional #:enum ("draft" "published") #:description "Defaults to 'draft' on add.")
+  (version string #:optional #:description "Semver-ish, e.g. '1.0.0' (for add).")
+  (confidence number #:optional #:description "0-1 (for add/publish).")
+  (content string #:optional #:description "Full SKILL.md text (for edit).")
+  (old_string string #:optional #:description "Exact substring to replace (for patch). Must appear exactly once.")
+  (new_string string #:optional #:description "Replacement text (for patch).")
+  (query string #:optional #:description "Search query (for search)."))
+
 (define-tool manage_documents
   #:description "Manage documents: list all documents (with optional search/language filter), delete documents, or run tidy cleanup."
   (action string #:enum ("list" "delete" "tidy"))

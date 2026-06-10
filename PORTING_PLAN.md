@@ -179,11 +179,19 @@ The part that gets *better* in Racket, not just different. ~15–20k LOC of the
     transcribed), friendly aliases, secret masking + refusal, structured-
     setting refusal, bool/int coercion, enums, endpoint-model resolution from
     cached model lists, and disable_tool/enable_tool/list_tools toggles.
+  - `manage_skills` (domain/skill-format.rkt + domain/skills.rkt, 19 tools
+    total): the full SKILL.md subsystem — mini-YAML frontmatter, section
+    parsing, markdown round-trip verified BYTE-IDENTICAL to Python's own
+    from_markdown→to_markdown (including its trailing-paragraph-folds-into-
+    last-bullet parser quirk), Jaccard dedup-at-creation, owner-scoped CRUD
+    with on-disk renames + usage-sidecar key moves, path-traversal-guarded
+    view_ref, and the scored relevance search. Live qwen2.5:7b run exercised
+    the progressive-disclosure flow (add → list → view → publish offer).
   - Out of scope, documented: `manage_session`/`manage_memory` (live session
     manager + memory service via dispatch_ai_tool), `manage_contact`/
-    `resolve_contact` (CardDAV HTTP client, like email), `manage_skills` and
-    `manage_calendar` (next up: skills is disk+DB; calendar needs the NL
-    datetime parser).
+    `resolve_contact` (CardDAV HTTP client, like email). Last remaining:
+    `manage_calendar` (~900 lines incl. the NL datetime parser
+    parse_due_for_user, which manage_notes.due_date would also reuse).
   Remaining: the rest of `tool_implementations.py` and the full prompt text
   (both mechanical).
 - `mcp_servers/` (MCP protocol) → Racket structs + JSON.

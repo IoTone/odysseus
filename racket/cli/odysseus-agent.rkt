@@ -27,6 +27,7 @@
          "../domain/integrations.rkt"       ; manage_{endpoints,mcp,webhooks,tokens}
          "../domain/documents.rkt"          ; manage_documents handler
          "../domain/settings-tool.rkt"      ; manage_settings handler
+         "../domain/skills.rkt"             ; manage_skills handler
          "../config.rkt")
 
 ;; DB-backed tools are wired here (not in exec.rkt's default-handlers) because
@@ -52,7 +53,10 @@
                 (lambda (conn)
                   (tool-result->text
                    (manage-settings conn (build-path (data-dir) "settings.json") content
-                                    #:owner owner)))))))
+                                    #:owner owner)))))
+             "manage_skills"
+             (lambda (content)
+               (tool-result->text (manage-skills (data-dir) content #:owner owner)))))
 
 (define (tool-names)
   (for/list ([s (in-list (all-tool-schemas))]) (hash-ref (hash-ref s 'function) 'name)))
