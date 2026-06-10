@@ -34,7 +34,11 @@
    "web_search"  "- `web_search` — one quick web lookup for a fact/current event."
    "web_fetch"   "- `web_fetch` — fetch and read the text of a specific URL."
    "manage_notes" "- `manage_notes` — notes, checklists AND reminders (actions: list/add/update/delete/toggle_item). For todos pass `checklist_items` [{text,done}]; for reminders pair `title` with `due_date`."
-   "manage_tasks" "- `manage_tasks` — scheduled/automated tasks (actions: list/create/edit/delete/pause/resume/run). Use for ANY recurring request ('every morning…'): create a task with `prompt` + `schedule` + `scheduled_time` (HH:MM UTC) rather than doing it once."))
+   "manage_tasks" "- `manage_tasks` — scheduled/automated tasks (actions: list/create/edit/delete/pause/resume/run). Use for ANY recurring request ('every morning…'): create a task with `prompt` + `schedule` + `scheduled_time` (HH:MM UTC) rather than doing it once."
+   "manage_endpoints" "- `manage_endpoints` — model API endpoints (actions: list/add/delete/enable/disable). `base_url` required for add."
+   "manage_mcp" "- `manage_mcp` — MCP tool servers (actions: list/add/delete/enable/disable/reconnect/list_tools). add needs `name` + `command` (+`args`/`env`)."
+   "manage_webhooks" "- `manage_webhooks` — webhooks (actions: list/add/delete/enable/disable). add needs a public http(s) `url`; `events` is comma-separated."
+   "manage_tokens" "- `manage_tokens` — API access tokens (actions: list/create/delete)."))
 
 ;; assemble-prompt: base + the guidance for the enabled (and not-disabled) tools.
 ;; #:compact? collapses tool guidance to a bare name list.

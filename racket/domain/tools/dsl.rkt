@@ -38,9 +38,10 @@
 ;; a param is (list name-string property-jsexpr required?)
 ;; #:items is either a type symbol (array of scalars) or a ready jsexpr spec
 ;; (array of objects, built by object-spec from #:items-of).
-(define (param name type #:description [desc ""] #:required? [req? #t]
+(define (param name type #:description [desc #f] #:required? [req? #t]
                #:enum [enum #f] #:items [items #f])
-  (define h0 (hasheq 'type (symbol->string type) 'description desc))
+  (define h0 (let ([base (hasheq 'type (symbol->string type))])
+               (if desc (hash-set base 'description desc) base)))   ; omit when absent (some Python params have none)
   (define h1 (if enum  (hash-set h0 'enum enum) h0))
   (define h2 (cond [(symbol? items) (hash-set h1 'items (hasheq 'type (symbol->string items)))]
                    [items           (hash-set h1 'items items)]
@@ -77,7 +78,7 @@
                     (~optional (~and #:optional opt))) ...)
       #:attr rt
       #`(param 'pid 'ptype
-               #:description #,(if (attribute d) #'d #'"")
+               #:description #,(if (attribute d) #'d #'#f)
                #:required? #,(if (attribute opt) #'#f #'#t)
                #:enum #,(if (attribute e) #'(list e ...) #'#f)
                #:items #,(cond [(attribute it) #'(quote it)]

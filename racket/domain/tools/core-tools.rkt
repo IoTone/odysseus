@@ -109,6 +109,37 @@
   (due_date string #:optional #:description "Reminder time. Accepts natural language ('tomorrow at 9am', '11pm today') or ISO 8601. Fires a notification at that time.")
   (index integer #:optional #:description "Checklist item index (for toggle_item, 0-based)"))
 
+(define-tool manage_endpoints
+  #:description "Manage model API endpoints: list configured endpoints, add new ones, delete, enable or disable them."
+  (action string #:enum ("list" "add" "delete" "enable" "disable"))
+  (endpoint_id string #:optional #:description "Endpoint ID (for delete/enable/disable)")
+  (name string #:optional #:description "Display name (for add)")
+  (base_url string #:optional #:description "API base URL e.g. https://api.openai.com/v1 (for add)")
+  (api_key string #:optional #:description "API key (for add)"))
+
+(define-tool manage_mcp
+  #:description "Manage MCP (Model Context Protocol) tool servers: list servers and their tools, add new servers, delete, enable/disable, reconnect, or list all available tools."
+  (action string #:enum ("list" "add" "delete" "enable" "disable" "reconnect" "list_tools"))
+  (server_id string #:optional #:description "Server ID (for delete/enable/disable/reconnect)")
+  (name string #:optional #:description "Server name (for add)")
+  (command string #:optional #:description "Command to run e.g. npx (for add)")
+  (args array #:optional #:items string #:description "Command arguments (for add)")
+  (env object #:optional #:description "Environment variables (for add)"))
+
+(define-tool manage_webhooks
+  #:description "Manage webhooks: list, add, delete, enable or disable webhook endpoints."
+  (action string #:enum ("list" "add" "delete" "enable" "disable"))
+  (webhook_id string #:optional #:description "Webhook ID (for delete/enable/disable)")
+  (name string #:optional #:description "Webhook name (for add)")
+  (url string #:optional #:description "Webhook URL (for add)")
+  (events string #:optional #:description "Comma-separated event names (for add)"))
+
+(define-tool manage_tokens
+  #:description "Manage API access tokens: list existing tokens, create new ones, or delete them."
+  (action string #:enum ("list" "create" "delete"))
+  (token_id string #:optional #:description "Token ID (for delete)")
+  (name string #:optional #:description "Token name (for create)"))
+
 (module+ main
   (require json)
   (write-json (all-tool-schemas))

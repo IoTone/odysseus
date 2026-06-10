@@ -36,6 +36,13 @@ CASES='[
  ["todos",{"action":"list"}],
  ["manage_tasks",{"action":"create","prompt":"p","schedule":"daily","scheduled_time":"07:30"}],
  ["tasks",{"action":"list"}],
+ ["manage_endpoints",{"action":"add","base_url":"https://api.x.ai/v1"}],
+ ["endpoints",{"action":"list"}],
+ ["manage_mcp",{"action":"add","name":"fs","command":"npx","args":["server-fs"],"env":{"A":"1"}}],
+ ["manage_webhooks",{"action":"add","url":"https://example.com/h"}],
+ ["webhooks",{"action":"list"}],
+ ["manage_tokens",{"action":"list"}],
+ ["tokens",{"action":"delete","token_id":"t1"}],
  ["send_email",{"to":"a@b.c"}],
  ["frobnicate",{}],
  ["bash","NOT JSON"]

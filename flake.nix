@@ -118,7 +118,7 @@
             export PLTCOLLECTS="$PWD/racket/pkgs:''${PLTCOLLECTS:-}"
             echo "Odysseus (Racket) dev shell · $(racket --version)"
             echo "  build : (cd racket && raco make config.rkt cli/odysseus-logs.rkt cli/odysseus-preset.rkt cli/odysseus-signature.rkt server/main.rkt test/run-tests.rkt)"
-            echo "  test  : (cd racket && racket test/run-tests.rkt)   # expect 18 success(es)"
+            echo "  test  : (cd racket && racket test/run-tests.rkt)   # expect 19 success(es)"
             echo "  run   : (cd racket && racket cli/odysseus-logs.rkt --version)"
             echo "  (kits resolve via PLTCOLLECTS — no raco pkg install needed)"
           '';

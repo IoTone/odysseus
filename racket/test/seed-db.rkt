@@ -73,10 +73,25 @@
   ;; mcp_servers
   (x c (string-append
     "CREATE TABLE IF NOT EXISTS mcp_servers(id TEXT PRIMARY KEY,name TEXT,transport TEXT,command TEXT,"
-    "args TEXT,env TEXT,url TEXT,is_enabled INT,oauth_config TEXT,created_at TEXT)"))
+    "args TEXT,env TEXT,url TEXT,is_enabled INT,oauth_config TEXT,disabled_tools TEXT,oauth_tokens TEXT,"
+    "created_at TEXT,updated_at TEXT)"))
   (x c (string-append
-    "INSERT OR IGNORE INTO mcp_servers VALUES('seed-mcp-1','Filesystem','stdio','npx',"
+    "INSERT OR IGNORE INTO mcp_servers(id,name,transport,command,args,env,url,is_enabled,oauth_config,"
+    "created_at) VALUES('seed-mcp-1','Filesystem','stdio','npx',"
     "'[\"server-fs\",\"/tmp\"]','{\"TOKEN\":\"secret\"}',NULL,1,NULL,'2026-06-01 00:00:00.000000')"))
+  ;; integration surfaces (manage_endpoints / manage_webhooks / manage_tokens)
+  (x c (string-append
+    "CREATE TABLE IF NOT EXISTS model_endpoints(id TEXT PRIMARY KEY,name TEXT,base_url TEXT,"
+    "api_key TEXT,is_enabled INT,hidden_models TEXT,cached_models TEXT,pinned_models TEXT,"
+    "model_type TEXT,endpoint_kind TEXT,model_refresh_mode TEXT,model_refresh_interval INT,"
+    "model_refresh_timeout INT,created_at TEXT,updated_at TEXT)"))
+  (x c (string-append
+    "CREATE TABLE IF NOT EXISTS webhooks(id TEXT PRIMARY KEY,name TEXT,url TEXT,secret TEXT,"
+    "events TEXT,is_active INT,last_triggered_at TEXT,last_status_code INT,last_error TEXT,"
+    "created_at TEXT,updated_at TEXT)"))
+  (x c (string-append
+    "CREATE TABLE IF NOT EXISTS api_tokens(id TEXT PRIMARY KEY,owner TEXT,name TEXT,token_hash TEXT,"
+    "token_prefix TEXT,scopes TEXT,is_active INT,last_used_at TEXT,created_at TEXT,updated_at TEXT)"))
   ;; calendars + events
   (x c "CREATE TABLE IF NOT EXISTS calendars(id TEXT PRIMARY KEY,name TEXT,color TEXT,source TEXT,created_at TEXT)")
   (x c "INSERT OR IGNORE INTO calendars VALUES('seed-cal-1','Personal','#5b8abf','local','2026-01-01 00:00:00.000000')")

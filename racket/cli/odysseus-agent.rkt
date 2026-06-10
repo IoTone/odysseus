@@ -24,6 +24,7 @@
          "../domain/tools/result.rkt"       ; tool-result->text
          "../domain/notes.rkt"              ; manage_notes handler
          "../domain/tasks.rkt"              ; manage_tasks handler
+         "../domain/integrations.rkt"       ; manage_{endpoints,mcp,webhooks,tokens}
          "../config.rkt")
 
 ;; DB-backed tools are wired here (not in exec.rkt's default-handlers) because
@@ -35,7 +36,11 @@
 (define app-handlers
   (hash-set* default-handlers
              "manage_notes" (db-tool manage-notes)
-             "manage_tasks" (db-tool manage-tasks)))
+             "manage_tasks" (db-tool manage-tasks)
+             "manage_endpoints" (db-tool manage-endpoints)
+             "manage_mcp" (db-tool manage-mcp)
+             "manage_webhooks" (db-tool manage-webhooks)
+             "manage_tokens" (db-tool manage-tokens)))
 
 (define (tool-names)
   (for/list ([s (in-list (all-tool-schemas))]) (hash-ref (hash-ref s 'function) 'name)))

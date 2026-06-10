@@ -18,6 +18,7 @@
          db
          "../domain/notes.rkt"      ; web-shape route serializer
          "../domain/tasks.rkt"      ; manage_tasks agent tool
+         "../domain/integrations.rkt" ; manage_{endpoints,mcp,webhooks,tokens}
          "../domain/tools/dsl.rkt"        ; tool-schema DSL
          "../domain/tools/core-tools.rkt"    ; registers the ported tools on load
          "../domain/tools/convert.rkt"       ; native-call → ToolBlock converter
@@ -386,7 +387,10 @@
       (check-equal? (hash-ref (hash-ref ci 'items) 'required) '("text"))
       (check-equal? (hash-ref (hash-ref (hash-ref (hash-ref ci 'items) 'properties) 'done) 'type)
                     "boolean")
-      (check-equal? (length (all-tool-schemas)) 12))
+      ;; params without description omit the key entirely (e.g. these actions)
+      (check-false (hash-has-key?
+                    (hash-ref (hash-ref (params 'manage_tokens) 'properties) 'action) 'description))
+      (check-equal? (length (all-tool-schemas)) 16))
 
     (test-case "native function-call → ToolBlock converter"
       (define (conv n a) (function-call->tool-block n a))
@@ -526,6 +530,67 @@
       (check-equal? (hash-ref (run "{\"action\":\"delete\"}") 'error) "task_id is required for delete")
       (check-equal? (hash-ref (run (jsexpr->string (hasheq 'action "delete" 'task_id tid))) 'response)
                     "Deleted task 'Digest'")
+      (disconnect c))
+
+    (test-case "integration tools — manage_{endpoints,mcp,webhooks,tokens}"
+      (define c (sqlite3-connect #:database 'memory))
+      (query-exec c (string-append
+        "CREATE TABLE model_endpoints(id TEXT PRIMARY KEY,name TEXT,base_url TEXT,api_key TEXT,"
+        "is_enabled INT,created_at TEXT,updated_at TEXT)"))
+      (query-exec c (string-append
+        "CREATE TABLE mcp_servers(id TEXT PRIMARY KEY,name TEXT,transport TEXT,command TEXT,"
+        "args TEXT,env TEXT,url TEXT,is_enabled INT,created_at TEXT,updated_at TEXT)"))
+      (query-exec c (string-append
+        "CREATE TABLE webhooks(id TEXT PRIMARY KEY,name TEXT,url TEXT,secret TEXT,events TEXT,"
+        "is_active INT,created_at TEXT,updated_at TEXT)"))
+      (query-exec c (string-append
+        "CREATE TABLE api_tokens(id TEXT PRIMARY KEY,owner TEXT,name TEXT,token_hash TEXT,"
+        "token_prefix TEXT,scopes TEXT,is_active INT,created_at TEXT,updated_at TEXT)"))
+      ;; endpoints: add requires base_url; enable/disable round-trip
+      (check-equal? (hash-ref (manage-endpoints c "{\"action\":\"add\"}") 'error) "base_url is required")
+      (define ea (manage-endpoints c "{\"action\":\"add\",\"base_url\":\"https://api.x.ai/v1\"}"))
+      (check-true (string-prefix? (hash-ref ea 'response) "Added endpoint 'https://api.x.ai/v1'"))
+      (define eid (query-value c "SELECT id FROM model_endpoints"))
+      (check-equal? (hash-ref (manage-endpoints c (jsexpr->string (hasheq 'action "disable" 'endpoint_id eid)))
+                              'response)
+                    "Endpoint 'https://api.x.ai/v1' disabled")
+      (define el (manage-endpoints c "{\"action\":\"list\"}"))
+      (check-equal? (hash-ref el 'response) "1 endpoints")
+      (check-equal? (hash-ref (car (hash-ref el 'endpoints)) 'is_enabled) #f)
+      ;; mcp: no-manager list; add validations + stored args/env JSON; enable/disable
+      (define ml (manage-mcp c "{\"action\":\"list\"}"))
+      (check-equal? (hash-ref ml 'response) "No MCP manager available")   ; Python's no-manager path
+      (check-equal? (hash-ref ml 'servers) '())
+      (check-equal? (hash-ref (manage-mcp c "{\"action\":\"add\",\"name\":\"fs\"}") 'error)
+                    "name and command are required")
+      (check-equal? (hash-ref (manage-mcp c "{\"action\":\"add\",\"name\":\"fs\",\"command\":\"npx\",\"args\":[\"sfs\"],\"env\":{\"T\":\"1\"}}")
+                              'response)
+                    "Added MCP server 'fs' (0 tools)")
+      (check-equal? (query-value c "SELECT args FROM mcp_servers WHERE name='fs'") "[\"sfs\"]")
+      (check-equal? (hash-ref (manage-mcp c "{\"action\":\"reconnect\",\"server_id\":\"x\"}") 'error)
+                    "MCP manager not available")
+      ;; webhooks: SSRF + event validation surface Python's error text
+      (check-equal? (hash-ref (manage-webhooks c "{\"action\":\"add\",\"url\":\"http://127.0.0.1/h\"}") 'error)
+                    "URL must not point to private/internal addresses")
+      (check-equal? (hash-ref (manage-webhooks c "{\"action\":\"add\",\"url\":\"ftp://example.com\"}") 'error)
+                    "URL must use http or https")
+      (check-true (string-prefix?
+                   (hash-ref (manage-webhooks c "{\"action\":\"add\",\"url\":\"https://example.com/h\",\"events\":\"bogus\"}") 'error)
+                   "Invalid events: bogus. Allowed:"))
+      ;; validators directly (no DNS dependency)
+      (check-equal? (validate-events "chat.completed , webhook.test") "chat.completed,webhook.test")
+      (check-equal? (with-handlers ([exn:fail? exn-message]) (validate-webhook-url "http://[::1]:9/h"))
+                    "validate-webhook-url: URL must not point to private/internal addresses")
+      ;; tokens: create is the documented bcrypt refusal; list/delete work
+      (query-exec c (string-append
+        "INSERT INTO api_tokens(id,name,token_hash,token_prefix,scopes,is_active) "
+        "VALUES('t1','CI token','$2b$x','abcd1234','chat',1)"))
+      (define tl (manage-tokens c "{\"action\":\"list\"}"))
+      (check-equal? (hash-ref tl 'response) "1 API tokens")
+      (check-equal? (hash-ref (car (hash-ref tl 'tokens)) 'token_prefix) "abcd1234...")
+      (check-true (string-contains? (hash-ref (manage-tokens c "{\"action\":\"create\"}") 'error) "bcrypt"))
+      (check-equal? (hash-ref (manage-tokens c "{\"action\":\"delete\",\"token_id\":\"t1\"}") 'response)
+                    "Deleted token 'CI token'")
       (disconnect c))
 
     (test-case "agent loop — control spine (done / tools / max-rounds)"
