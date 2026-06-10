@@ -187,11 +187,26 @@ The part that gets *better* in Racket, not just different. ~15–20k LOC of the
     with on-disk renames + usage-sidecar key moves, path-traversal-guarded
     view_ref, and the scored relevance search. Live qwen2.5:7b run exercised
     the progressive-disclosure flow (add → list → view → publish offer).
+  - `manage_calendar` (domain/nl-datetime.rkt + domain/calendar-tool.rkt,
+    20 tools total — the manage_* sweep is COMPLETE): the NL datetime engine
+    (_parse_dt/_parse_dt_pair/parse_due_for_user — today/tomorrow/next
+    weekday/in-N-units/bare-time + ISO with tz handling) verified
+    case-by-case IDENTICAL to the live Python functions at a fixed clock
+    (26/26). Events owner-scoped through their calendar; create with
+    duration parsing, case-insensitive title+start dedup, reminder Notes
+    (source="calendar", with the duplicate-reminder dedup), clickable
+    [summary](#event-uid) anchors; compound {uid}::{date} resolution;
+    update recomputes is_utc like Python (and stays bug-compatible: rrule
+    is advertised but never applied on update). Divergences documented in
+    the module headers: no per-request user-tz (CLI takes Python's own
+    no-tz legacy path) and no dateutil fuzzy fallback (those inputs raise
+    Python's exhausted-parser error).
   - Out of scope, documented: `manage_session`/`manage_memory` (live session
     manager + memory service via dispatch_ai_tool), `manage_contact`/
-    `resolve_contact` (CardDAV HTTP client, like email). Last remaining:
-    `manage_calendar` (~900 lines incl. the NL datetime parser
-    parse_due_for_user, which manage_notes.due_date would also reuse).
+    `resolve_contact` (CardDAV HTTP client, like email).
+  - Local-model note: at 20 tools qwen2.5:7b is getting marginal (tool calls
+    fine; final text sometimes empty, error recovery degrades) — prefer
+    qwen2.5:14b or a hosted model for the full set.
   Remaining: the rest of `tool_implementations.py` and the full prompt text
   (both mechanical).
 - `mcp_servers/` (MCP protocol) → Racket structs + JSON.

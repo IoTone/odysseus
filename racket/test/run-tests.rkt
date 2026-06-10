@@ -23,6 +23,8 @@
          "../domain/settings-tool.rkt" ; manage_settings agent tool
          "../domain/skill-format.rkt" ; SKILL.md round-trip
          "../domain/skills.rkt"     ; manage_skills agent tool
+         "../domain/nl-datetime.rkt" ; calendar datetime engine
+         "../domain/calendar-tool.rkt" ; manage_calendar agent tool
          "../domain/tools/dsl.rkt"        ; tool-schema DSL
          "../domain/tools/core-tools.rkt"    ; registers the ported tools on load
          "../domain/tools/convert.rkt"       ; native-call → ToolBlock converter
@@ -397,7 +399,7 @@
       ;; type-less params (manage_settings.value) omit the "type" key
       (check-false (hash-has-key?
                     (hash-ref (hash-ref (params 'manage_settings) 'properties) 'value) 'type))
-      (check-equal? (length (all-tool-schemas)) 19))
+      (check-equal? (length (all-tool-schemas)) 20))
 
     (test-case "native function-call → ToolBlock converter"
       (define (conv n a) (function-call->tool-block n a))
@@ -730,6 +732,76 @@
       (check-equal? (hash-ref (run "{\"action\":\"list\"}") 'results)
                     "No skills yet. Create one with action='add'.")
       (delete-directory/files dir))
+
+    (test-case "manage_calendar tool — NL datetimes + event CRUD + reminders"
+      ;; datetime engine: fixtures verified identical to live Python _parse_dt /
+      ;; parse_due_for_user / _parse_dt_pair at now = Wed 2026-06-10 14:30
+      (define now (find-seconds 0 30 14 10 6 2026 #f))
+      (define (pd s) (naive->iso (parse-dt s #:now now)))
+      (check-equal? (pd "2026-06-15T09:00:00+09:00") "2026-06-15T00:00:00")  ; aware → UTC naive
+      (check-equal? (pd "today at 9pm")      "2026-06-10T21:00:00")
+      (check-equal? (pd "tomorrow 14:00")    "2026-06-11T14:00:00")
+      (check-equal? (pd "next monday at 9am") "2026-06-15T09:00:00")
+      (check-equal? (pd "next wednesday")    "2026-06-17T00:00:00")          ; Wed → +7
+      (check-equal? (pd "in 45 min")         "2026-06-10T15:15:00")
+      (check-equal? (pd "12am")              "2026-06-10T00:00:00")
+      (check-equal? (parse-due-for-user "2026-06-15T09:00:00Z" #:now now)
+                    "2026-06-15T09:00:00+00:00")
+      (define-values (pp pu) (parse-dt-pair "2026-06-15T09:00:00Z" #:now now))
+      (check-equal? (list (naive->iso pp) pu) '("2026-06-15T09:00:00" #t))
+      ;; CRUD on a scratch DB (utc "now" pretends UTC+1)
+      (define c (sqlite3-connect #:database 'memory))
+      (query-exec c (string-append
+        "CREATE TABLE calendars(id TEXT PRIMARY KEY,owner TEXT,name TEXT,color TEXT,source TEXT,"
+        "account_id TEXT,created_at TEXT,updated_at TEXT)"))
+      (query-exec c (string-append
+        "CREATE TABLE calendar_events(uid TEXT PRIMARY KEY,calendar_id TEXT,summary TEXT,"
+        "description TEXT,location TEXT,dtstart TEXT,dtend TEXT,all_day INT,is_utc INT,rrule TEXT,"
+        "color TEXT,status TEXT,importance TEXT,event_type TEXT,last_pinged TEXT,"
+        "created_at TEXT,updated_at TEXT)"))
+      (query-exec c (string-append
+        "CREATE TABLE notes(id TEXT PRIMARY KEY,owner TEXT,title TEXT,content TEXT,items TEXT,"
+        "note_type TEXT,color TEXT,label TEXT,pinned INT,archived INT,due_date TEXT,source TEXT,"
+        "session_id TEXT,sort_order INT,repeat TEXT,created_at TEXT,updated_at TEXT)"))
+      (define nu (find-seconds 0 30 13 10 6 2026 #f))
+      (define (run s) (manage-calendar c s #:owner "alice" #:now-local now #:now-utc nu))
+      ;; list_calendars seeds the default Personal calendar
+      (check-true (string-prefix? (hash-ref (run "{\"action\":\"list_calendars\"}") 'response)
+                                  "Found 1 calendar(s):"))
+      ;; create with NL start, duration, tag, importance + reminder note
+      (define r1 (run "{\"action\":\"create_event\",\"summary\":\"Dentist\",\"dtstart\":\"tomorrow 9am\",\"duration\":\"45m\",\"location\":\"Main St\",\"event_type\":\"health\",\"importance\":\"high\",\"reminder_minutes\":30}"))
+      (check-true (string-contains? (hash-ref r1 'response) "Created event [Dentist](#event-"))
+      (check-true (string-contains? (hash-ref r1 'response) "[health]"))
+      (check-true (string-contains? (hash-ref r1 'response) "with reminder 30 min before"))
+      (check-equal? (query-value c "SELECT dtend FROM calendar_events") "2026-06-11 09:45:00.000000")
+      (check-equal? (query-row c "SELECT title, due_date FROM notes")
+                    #("Reminder: Dentist" "2026-06-11T08:30:00"))
+      ;; duplicate create (case-insensitive summary + same start) returns existing uid
+      (define r2 (run "{\"action\":\"create\",\"summary\":\"dentist\",\"dtstart\":\"2026-06-11T09:00:00\"}"))
+      (check-equal? (hash-ref r2 'duplicate #f) #t)
+      (check-equal? (hash-ref r2 'uid) (hash-ref r1 'uid))
+      ;; list renders range + anchor + tags
+      (define l1 (run "{\"action\":\"list_events\"}"))
+      (check-true (string-prefix? (hash-ref l1 'response)
+                                  "Found 1 event(s) between 2026-06-10 and 2026-06-24:"))
+      (check-true (string-contains? (hash-ref l1 'response) "#health !high @ Main St (Personal)"))
+      ;; update + compound-uid handling + delete
+      (define uid (hash-ref r1 'uid))
+      (check-equal? (hash-ref (run (jsexpr->string (hasheq 'action "update_event"
+                                                           'uid (string-append uid "::20260611")
+                                                           'summary "Dentist v2")))
+                              'response)
+                    (format "Updated event ~a::20260611" uid))
+      (check-equal? (query-value c "SELECT summary FROM calendar_events") "Dentist v2")
+      (check-equal? (hash-ref (run "{\"action\":\"delete_event\",\"uid\":\"::x\"}") 'error)
+                    "malformed compound UID: missing base before ::")
+      (check-equal? (hash-ref (run (jsexpr->string (hasheq 'action "delete_event" 'uid uid))) 'response)
+                    (format "Deleted event ~a" uid))
+      ;; parse failure carries Python's error shape
+      (check-true (string-prefix? (hash-ref (run "{\"action\":\"create_event\",\"summary\":\"X\",\"dtstart\":\"someday maybe\"}")
+                                            'error)
+                                  "Could not parse dtstart 'someday maybe':"))
+      (disconnect c))
 
     (test-case "agent loop — control spine (done / tools / max-rounds)"
       (define exec-log (box '()))

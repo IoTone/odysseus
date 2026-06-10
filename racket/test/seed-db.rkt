@@ -101,8 +101,12 @@
     "archived,owner,created_at,updated_at) VALUES('seed-doc-1','Meeting notes','markdown',"
     "'# Standup\nblockers: none',1,1,0,'alice','2026-06-01 10:00:00.000000','2026-06-01 10:00:00.000000')"))
   ;; calendars + events
-  (x c "CREATE TABLE IF NOT EXISTS calendars(id TEXT PRIMARY KEY,name TEXT,color TEXT,source TEXT,created_at TEXT)")
-  (x c "INSERT OR IGNORE INTO calendars VALUES('seed-cal-1','Personal','#5b8abf','local','2026-01-01 00:00:00.000000')")
+  (x c (string-append
+    "CREATE TABLE IF NOT EXISTS calendars(id TEXT PRIMARY KEY,owner TEXT,name TEXT,color TEXT,"
+    "source TEXT,account_id TEXT,created_at TEXT,updated_at TEXT)"))
+  (x c (string-append
+    "INSERT OR IGNORE INTO calendars(id,name,color,source,created_at) "
+    "VALUES('seed-cal-1','Personal','#5b8abf','local','2026-01-01 00:00:00.000000')"))
   (x c (string-append
     "CREATE TABLE IF NOT EXISTS calendar_events(uid TEXT PRIMARY KEY,calendar_id TEXT,summary TEXT,"
     "description TEXT,location TEXT,dtstart TEXT,dtend TEXT,all_day INT,is_utc INT,rrule TEXT,color TEXT,"

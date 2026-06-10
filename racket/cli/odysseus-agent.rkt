@@ -28,6 +28,7 @@
          "../domain/documents.rkt"          ; manage_documents handler
          "../domain/settings-tool.rkt"      ; manage_settings handler
          "../domain/skills.rkt"             ; manage_skills handler
+         "../domain/calendar-tool.rkt"      ; manage_calendar handler
          "../config.rkt")
 
 ;; DB-backed tools are wired here (not in exec.rkt's default-handlers) because
@@ -56,7 +57,8 @@
                                     #:owner owner)))))
              "manage_skills"
              (lambda (content)
-               (tool-result->text (manage-skills (data-dir) content #:owner owner)))))
+               (tool-result->text (manage-skills (data-dir) content #:owner owner)))
+             "manage_calendar" (db-tool manage-calendar)))
 
 (define (tool-names)
   (for/list ([s (in-list (all-tool-schemas))]) (hash-ref (hash-ref s 'function) 'name)))

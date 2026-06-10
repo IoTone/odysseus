@@ -49,6 +49,8 @@ CASES='[
  ["preferences",{"action":"list"}],
  ["manage_skills",{"action":"add","name":"open-pr","procedure":["push","gh pr create"]}],
  ["skills",{"action":"view","name":"open-pr"}],
+ ["manage_calendar",{"action":"create_event","summary":"Dentist","dtstart":"2026-06-11T09:00:00","reminder_minutes":30}],
+ ["manage_calendar",{"action":"list_events"}],
  ["send_email",{"to":"a@b.c"}],
  ["frobnicate",{}],
  ["bash","NOT JSON"]
