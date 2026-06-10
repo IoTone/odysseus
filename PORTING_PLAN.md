@@ -143,6 +143,18 @@ The part that gets *better* in Racket, not just different. ~15–20k LOC of the
       echoes `assistant.tool_calls` + one `role:"tool"` message per result (matched
       by `tool_call_id`), with the flattened turn kept as a fallback when there are
       no raw calls (so the spine stays usable without an OpenAI-shaped `llm`).
+  **✅ First DB-backed vertical — `manage_notes`:** the DSL grew `#:items-of`
+  (arrays of objects, e.g. `checklist_items` [{text, done}]); the schema is
+  byte-identical to Python's (fidelity-tools.sh, now 11 tools); the converter
+  knows the notes/todo/todos aliases (fidelity-convert.sh, 28 cases); and
+  `domain/notes.rkt` carries a faithful port of `do_manage_notes` (action
+  aliases, owner scoping, id-prefix match, duplicate-reminder dedup; due_date
+  is ISO-passthrough — the NL date parser is not ported, and passthrough is
+  Python's own fallback). DB-backed handlers wire up in `cli/odysseus-agent.rkt`
+  (exec.rkt stays config-free). Verified live against ollama qwen2.5:7b:
+  one round emitted parallel add+list tool_calls, both executed against the
+  app schema, correct final answer. This is the pattern for exposing the other
+  ported domains (sessions/tasks/calendar/mcp) as agent tools.
   Remaining: the rest of `tool_implementations.py` and the full prompt text
   (both mechanical).
 - `mcp_servers/` (MCP protocol) → Racket structs + JSON.

@@ -21,7 +21,17 @@
          "../domain/agent/prompt.rkt"
          "../domain/tools/dsl.rkt"
          "../domain/tools/core-tools.rkt"   ; registers the ported tools
+         "../domain/notes.rkt"              ; manage_notes handler
          "../config.rkt")
+
+;; DB-backed tools are wired here (not in exec.rkt's default-handlers) because
+;; they need the app database — exec.rkt stays config-free. Owner is #f: the
+;; agent CLI has no auth identity (the Python agent's owner=None path).
+(define app-handlers
+  (hash-set default-handlers "manage_notes"
+            (lambda (content)
+              (call-with-app-db
+               (lambda (conn) (manage-notes-result->text (manage-notes conn content #:owner #f)))))))
 
 (define (tool-names)
   (for/list ([s (in-list (all-tool-schemas))]) (hash-ref (hash-ref s 'function) 'name)))
@@ -67,7 +77,7 @@
   (define result
     (run-agent (list (hasheq 'role "system" 'content (assemble-prompt #:tools (tool-names)))
                      (hasheq 'role "user" 'content prompt))
-               #:llm llm #:exec (make-exec) #:max-rounds max-rounds))
+               #:llm llm #:exec (make-exec #:handlers app-handlers) #:max-rounds max-rounds))
   (emit (hasheq 'status (symbol->string (agent-result-status result))
                 'rounds (agent-result-rounds result)
                 'final (final-text result)

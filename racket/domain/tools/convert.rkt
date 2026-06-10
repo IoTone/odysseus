@@ -35,12 +35,14 @@
         "suggest_document" "suggest_document"
         "search_chats" "search_chats"
         "grep" "grep" "glob" "glob" "ls" "ls" "edit_file" "edit_file"
-        "pipeline" "pipeline" "manage_memory" "manage_memory"))
+        "pipeline" "pipeline" "manage_memory" "manage_memory"
+        "manage_notes" "manage_notes" "notes" "manage_notes"
+        "todo" "manage_notes" "todos" "manage_notes"))
 
 (define tool-tags
   (set "bash" "python" "web_search" "web_fetch" "read_file" "write_file" "edit_file"
        "grep" "glob" "ls" "create_document" "update_document" "edit_document"
-       "suggest_document" "search_chats" "pipeline" "manage_memory"))
+       "suggest_document" "search_chats" "pipeline" "manage_memory" "manage_notes"))
 
 (define builtin-email
   (set "list_email_accounts" "send_email" "list_emails" "read_email" "reply_to_email"

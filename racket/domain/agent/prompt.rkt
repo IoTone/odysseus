@@ -32,7 +32,8 @@
    "glob"        "- `glob` — find files by glob pattern, newest first."
    "grep"        "- `grep` — search file contents by regex; returns file:line:match."
    "web_search"  "- `web_search` — one quick web lookup for a fact/current event."
-   "web_fetch"   "- `web_fetch` — fetch and read the text of a specific URL."))
+   "web_fetch"   "- `web_fetch` — fetch and read the text of a specific URL."
+   "manage_notes" "- `manage_notes` — notes, checklists AND reminders (actions: list/add/update/delete/toggle_item). For todos pass `checklist_items` [{text,done}]; for reminders pair `title` with `due_date`."))
 
 ;; assemble-prompt: base + the guidance for the enabled (and not-disabled) tools.
 ;; #:compact? collapses tool guidance to a bare name list.

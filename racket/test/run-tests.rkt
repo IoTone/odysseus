@@ -377,7 +377,14 @@
       ;; enum carried through
       (check-equal? (hash-ref (hash-ref (hash-ref (params 'web_search) 'properties) 'time_filter) 'enum)
                     '("day" "week" "month" "year"))
-      (check-equal? (length (all-tool-schemas)) 10))
+      ;; nested object arrays (#:items-of): items spec with its own properties/required
+      (define ci (hash-ref (hash-ref (params 'manage_notes) 'properties) 'checklist_items))
+      (check-equal? (hash-ref ci 'type) "array")
+      (check-equal? (hash-ref (hash-ref ci 'items) 'type) "object")
+      (check-equal? (hash-ref (hash-ref ci 'items) 'required) '("text"))
+      (check-equal? (hash-ref (hash-ref (hash-ref (hash-ref ci 'items) 'properties) 'done) 'type)
+                    "boolean")
+      (check-equal? (length (all-tool-schemas)) 11))
 
     (test-case "native function-call → ToolBlock converter"
       (define (conv n a) (function-call->tool-block n a))
@@ -400,7 +407,59 @@
       (check-equal? (tc "edit_document" "{\"edits\":[{\"find\":\"a\",\"replace\":\"b\"}]}")
                     "<<<FIND>>>\na\n<<<REPLACE>>>\nb\n<<<END>>>")
       (check-equal? (tc "manage_memory" "{\"action\":\"add\",\"text\":\"hi\",\"category\":\"fact\"}")
-                    "add\nhi\nfact"))
+                    "add\nhi\nfact")
+      ;; manage_notes: aliased names, JSON-passthrough content (the dumps fallback)
+      (check-equal? (tool-block-type (conv "todos" "{\"action\":\"list\"}")) "manage_notes")
+      (check-equal? (hash-ref (string->jsexpr (tc "manage_notes" "{\"action\":\"add\",\"title\":\"t\"}")) 'title)
+                    "t"))
+
+    (test-case "manage_notes tool — CRUD on notes and checklists"
+      (define c (sqlite3-connect #:database 'memory))
+      (query-exec c (string-append
+        "CREATE TABLE notes(id TEXT PRIMARY KEY,owner TEXT,title TEXT,content TEXT,"
+        "items TEXT,note_type TEXT,color TEXT,label TEXT,pinned INT,archived INT,due_date TEXT,"
+        "source TEXT,session_id TEXT,sort_order INT,image_url TEXT,repeat TEXT,ai_classification TEXT,"
+        "ai_content_hash TEXT,agent_session_id TEXT,created_at TEXT,updated_at TEXT)"))
+      (define (run s #:owner [o #f]) (manage-notes c s #:owner o))
+      ;; add a checklist (alias `create`); items via checklist_items
+      (define r1 (run "{\"action\":\"create\",\"title\":\"Groceries\",\"checklist_items\":[{\"text\":\"milk\"},{\"text\":\"eggs\",\"done\":true}],\"pinned\":true}"))
+      (check-equal? (hash-ref r1 'exit_code) 0)
+      (check-true (string-prefix? (hash-ref r1 'response) "Note created: \"Groceries\""))
+      (define nid (hash-ref r1 'note_id))
+      (check-equal? (hash-ref r1 'open_url) (format "/#open=notes&note=~a" nid))
+      ;; list: Python's exact line format, including checklist rendering
+      (define listing (hash-ref (run "{\"action\":\"list\"}") 'results))
+      (check-true (string-contains? listing
+                    (format "- [~a] **Groceries** [PINNED] [checklist]" (substring nid 0 8))))
+      (check-true (string-contains? listing "  [ ] 0: milk"))
+      (check-true (string-contains? listing "  [x] 1: eggs"))
+      ;; toggle by 8-char id prefix
+      (define r2 (run (jsexpr->string (hasheq 'action "toggle_item" 'id (substring nid 0 8) 'index 0))))
+      (check-equal? (hash-ref r2 'response) "Item 'milk' marked done")
+      ;; update title + archive; archived notes drop out of the default list
+      (run (jsexpr->string (hasheq 'action "update" 'id (substring nid 0 8)
+                                   'title "Weekend run" 'archived #t)))
+      (check-equal? (hash-ref (run "{\"action\":\"list\"}") 'response) "No notes found.")
+      (check-true (string-contains? (hash-ref (run "{\"action\":\"list\",\"archived\":true}") 'results)
+                                    "**Weekend run**"))
+      ;; duplicate-reminder dedup: normalized title + same due_date → existing id
+      (define a1 (run "{\"action\":\"add\",\"title\":\"Call dentist\",\"due_date\":\"2026-06-10T09:00:00\"}"))
+      (define a2 (run "{\"action\":\"remind\",\"title\":\"Reminder: call  dentist\",\"due_date\":\"2026-06-10T09:00:00\"}"))
+      (check-equal? (hash-ref a2 'duplicate #f) #t)
+      (check-equal? (hash-ref a2 'note_id) (hash-ref a1 'note_id))
+      ;; owner scoping: foreign notes are invisible to update/delete
+      (define rb (run "{\"action\":\"add\",\"title\":\"Bobs\"}" #:owner "bob"))
+      (define att (run (jsexpr->string (hasheq 'action "delete" 'id (hash-ref rb 'note_id)))
+                       #:owner "alice"))
+      (check-equal? (hash-ref att 'error) "Note not found")
+      ;; errors: bad JSON, unknown action, missing note — and the text renderer
+      (check-equal? (hash-ref (run "{nope") 'error) "Invalid JSON arguments")
+      (check-true (string-prefix? (hash-ref (run "{\"action\":\"zap\"}") 'error) "Unknown action: zap"))
+      (check-equal? (hash-ref (run "{\"action\":\"delete\",\"id\":\"zzz\"}") 'error) "Note 'zzz' not found")
+      (check-equal? (manage-notes-result->text (hasheq 'error "boom" 'exit_code 1)) "**Error:** boom")
+      (check-true (string-prefix? (manage-notes-result->text r1) "Note created:"))
+      (check-true (string-contains? (manage-notes-result->text r1) "**data:**"))
+      (disconnect c))
 
     (test-case "agent loop — control spine (done / tools / max-rounds)"
       (define exec-log (box '()))

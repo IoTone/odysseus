@@ -32,6 +32,8 @@ CASES='[
  ["manage_memory",{"action":"add","text":"hi","category":"fact"}],
  ["manage_memory",{"action":"list"}],
  ["manage_memory",{"action":"delete","memory_id":"m1"}],
+ ["manage_notes",{"action":"add","title":"t","checklist_items":[{"text":"a","done":false}]}],
+ ["todos",{"action":"list"}],
  ["send_email",{"to":"a@b.c"}],
  ["frobnicate",{}],
  ["bash","NOT JSON"]

@@ -6,7 +6,7 @@
 set -uo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"; cd "$ROOT"
 
-names='bash python web_search web_fetch read_file grep glob ls write_file edit_file'
+names='bash python web_search web_fetch read_file grep glob ls write_file edit_file manage_notes'
 
 python3 - "$names" <<'PY' > /tmp/py_tools.json
 import ast, json, sys

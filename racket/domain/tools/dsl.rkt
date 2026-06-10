@@ -14,6 +14,12 @@
 ;;
 ;; — and the macro produces the exact JSON the LLM sees. Required-by-default;
 ;; #:optional drops a param from "required". #:enum and #:items supported.
+;; Arrays of OBJECTS use #:items-of with nested param specs (same conventions):
+;;
+;;   (checklist_items array #:optional
+;;     #:items-of ((text string #:description "The to-do item text")
+;;                 (done boolean #:optional #:description "Checked off?"))
+;;     #:description "Checklist items …")
 
 (require json
          (for-syntax racket/base syntax/parse))
@@ -30,12 +36,23 @@
 
 ;; ---- runtime builders ------------------------------------------------------
 ;; a param is (list name-string property-jsexpr required?)
+;; #:items is either a type symbol (array of scalars) or a ready jsexpr spec
+;; (array of objects, built by object-spec from #:items-of).
 (define (param name type #:description [desc ""] #:required? [req? #t]
                #:enum [enum #f] #:items [items #f])
   (define h0 (hasheq 'type (symbol->string type) 'description desc))
   (define h1 (if enum  (hash-set h0 'enum enum) h0))
-  (define h2 (if items (hash-set h1 'items (hasheq 'type (symbol->string items))) h1))
+  (define h2 (cond [(symbol? items) (hash-set h1 'items (hasheq 'type (symbol->string items)))]
+                   [items           (hash-set h1 'items items)]
+                   [else h1]))
   (list (symbol->string name) h2 req?))
+
+;; an object schema from a list of params — the items spec for object arrays
+(define (object-spec params)
+  (hasheq 'type "object"
+          'properties (for/hasheq ([p (in-list params)])
+                        (values (string->symbol (car p)) (cadr p)))
+          'required (for/list ([p (in-list params)] #:when (caddr p)) (car p))))
 
 (define (tool->jsexpr name desc params)
   (hasheq 'type "function"
@@ -56,13 +73,16 @@
               (~alt (~optional (~seq #:description d:str))
                     (~optional (~seq #:enum (e:str ...)))
                     (~optional (~seq #:items it:id))
+                    (~optional (~seq #:items-of (sub:tparam ...)))   ; array of objects
                     (~optional (~and #:optional opt))) ...)
       #:attr rt
       #`(param 'pid 'ptype
                #:description #,(if (attribute d) #'d #'"")
                #:required? #,(if (attribute opt) #'#f #'#t)
                #:enum #,(if (attribute e) #'(list e ...) #'#f)
-               #:items #,(if (attribute it) #'(quote it) #'#f)))))
+               #:items #,(cond [(attribute it) #'(quote it)]
+                               [(attribute sub) #'(object-spec (list sub.rt ...))]
+                               [else #'#f])))))
 
 (define-syntax (define-tool stx)
   (syntax-parse stx

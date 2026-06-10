@@ -30,7 +30,7 @@ the app depends on them.
         main.rkt                    web-server: /health, /api/notes, /api/sessions
         proxy.rkt                   strangler reverse proxy (RACKET_PREFIXES → Racket, rest → Python)
         concurrency-demo.rkt        proof: native evented I/O, no libuv
-      test/run-tests.rkt            portable rackunit suite (16 cases)
+      test/run-tests.rkt            portable rackunit suite (17 cases)
       info.rkt                      the app package
 
 ## Install Racket
@@ -91,7 +91,7 @@ build *is* a passing test run. Installed commands are wrappers around nixpkgs'
     # the explicit list in VALIDATION.md — PowerShell doesn't expand *.rkt)
     raco make config.rkt cli/*.rkt domain/*.rkt server/*.rkt test/*.rkt
 
-    racket test/run-tests.rkt                 # the suite (expect: 16 success(es))
+    racket test/run-tests.rkt                 # the suite (expect: 17 success(es))
     racket cli/odysseus-logs.rkt list --pretty
     racket cli/odysseus-calendar.rkt calendars --pretty   # DB CLI example
     racket server/main.rkt --port 8099 &      # then: curl localhost:8099/{health,api/notes}
@@ -111,8 +111,12 @@ endpoint. To run fully offline with [ollama](https://ollama.com):
 
 **Minimal model: `qwen2.5:7b`.** `qwen2.5:3b` is marginal — it handles a system
 prompt with up to ~7 tools, but returns empty content with the full agent prompt
-+ all 10 tools. Larger / hosted models (gpt-4o, etc.) work via the same flags
++ the full toolset. Larger / hosted models (gpt-4o, etc.) work via the same flags
 plus `OPENAI_API_KEY`.
+
+DB-backed tools (`manage_notes`) operate on the app database (`DATABASE_URL`,
+default `data/app.db`); run `racket test/seed-db.rkt` first on a fresh checkout
+to create the schema.
 
 ## Fidelity check (the porting contract)
 
@@ -136,7 +140,7 @@ On Linux, build these with the **official** Racket, not Homebrew (the
 Fastest signal → fullest:
 
     raco make config.rkt cli/*.rkt domain/*.rkt server/*.rkt test/*.rkt   # 1. compiles?
-    racket test/run-tests.rkt                                # 2. behavior (16 tests)
+    racket test/run-tests.rkt                                # 2. behavior (17 tests)
     ../ci/fidelity.sh                                        # 3. byte-identical to Python (from repo root)
 
 For hands-on, step-by-step verification (CLIs, server, packaging, fidelity,

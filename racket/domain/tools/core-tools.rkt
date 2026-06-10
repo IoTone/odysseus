@@ -62,6 +62,26 @@
   (new_string string #:description "Replacement text")
   (replace_all boolean #:optional #:description "Replace all occurrences instead of requiring a unique match"))
 
+(define-tool manage_notes
+  #:description "Manage notes and checklists (Google Keep-style): list, add, update, delete, toggle_item. IMPORTANT: For to-do lists / checklists, set note_type='checklist' and pass the items as the `checklist_items` array — do NOT serialize them into `content` as plain text. For freeform notes, use note_type='note' and put the body in `content`. `due_date` accepts natural language like 'tomorrow at 9am' (parsed in the user's timezone) and fires a notification — do not also create a calendar event for the same reminder."
+  (action string #:enum ("list" "add" "update" "delete" "toggle_item")
+          #:description "The action to perform")
+  (id string #:optional #:description "Note id (for update/delete/toggle_item); 8-char prefix is fine")
+  (title string #:optional #:description "Note title (for add/update)")
+  (content string #:optional #:description "Freeform body text. Use this for note_type='note'. Do NOT use this for checklists — pass `checklist_items` instead.")
+  (note_type string #:optional #:enum ("note" "checklist")
+             #:description "'note' = freeform text in `content`. 'checklist' = structured to-do items in `checklist_items`. Defaults to 'checklist' if checklist_items is supplied, else 'note'.")
+  (checklist_items array #:optional
+    #:items-of ((text string #:description "The to-do item text")
+                (done boolean #:optional #:description "Whether the item is checked off"))
+    #:description "Checklist items for note_type='checklist'. Each item is {text, done}. REQUIRED for checklists — leaving this empty produces a blank note.")
+  (color string #:optional #:description "Optional color label (e.g. 'yellow', 'blue', 'green')")
+  (label string #:optional #:description "Optional category label (also used as a list filter)")
+  (pinned boolean #:optional #:description "Pin the note to the top")
+  (archived boolean #:optional #:description "For update: archive/unarchive. For list: show archived notes when true.")
+  (due_date string #:optional #:description "Reminder time. Accepts natural language ('tomorrow at 9am', '11pm today') or ISO 8601. Fires a notification at that time.")
+  (index integer #:optional #:description "Checklist item index (for toggle_item, 0-based)"))
+
 (module+ main
   (require json)
   (write-json (all-tool-schemas))
