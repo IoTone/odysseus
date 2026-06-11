@@ -72,6 +72,11 @@ pipeline {
               # Tool-schema DSL vs FUNCTION_TOOL_SCHEMAS (no venv — ast.literal_eval).
               chmod +x ci/fidelity-tools.sh && ci/fidelity-tools.sh
 
+              # Mega end-to-end: real agent loop → tool dispatch → on-disk DB,
+              # driven by a scripted mock LLM (no model). Re-runs the cheap
+              # layers above too; the live-ollama stage auto-skips (no :11434).
+              chmod +x racket/test/integration.sh && racket/test/integration.sh
+
               # Standalone binaries (the packaging deliverable).
               mkdir -p racket/dist
               for t in odysseus-logs odysseus-preset odysseus-signature odysseus-notes odysseus-sessions odysseus-tasks odysseus-research odysseus-mcp odysseus-calendar; do

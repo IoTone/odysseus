@@ -7,6 +7,12 @@ note it and report back (a screenshot or the terminal text is perfect).
 
 > Companion to the interactive `test-plan-manual.html` (open it in a browser for
 > a checkbox version). This file is the linear "just run these" path.
+>
+> **On macOS/Linux, the single fullest check is `racket/test/integration.sh`** —
+> compile → suite → fidelity → real-agent-loop end-to-end (mock LLM, no model
+> needed) → optional live ollama. The steps below are the per-OS breakdown +
+> the packaging (`raco exe`) check that the integration script doesn't cover.
+> (On bash; Windows uses `validate-windows.bat`.)
 
 Pinned Racket version: **9.2 (CS)**. Run all commands from the **repo root**
 unless a step says `cd racket`.

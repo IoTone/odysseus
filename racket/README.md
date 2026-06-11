@@ -150,6 +150,23 @@ Fastest signal → fullest:
     raco make config.rkt cli/*.rkt domain/*.rkt server/*.rkt test/*.rkt   # 1. compiles?
     racket test/run-tests.rkt                                # 2. behavior (23 tests)
     ../ci/fidelity.sh                                        # 3. byte-identical to Python (from repo root)
+    test/integration.sh                                      # 4. the whole stack, end-to-end
+
+`test/integration.sh` is the **mega integration test** — the one command that
+runs everything in layers, each gating the next:
+
+1. compile every entrypoint
+2. the rackunit suite
+3. schema + converter fidelity vs Python (auto-skips without `python3`/venv)
+4. **end-to-end through the real agent loop** — a scripted mock LLM
+   (`test/mock-llm.rkt`, no model needed) drives loop → HTTP adapter →
+   tool-call protocol → exec dispatch → real on-disk SQLite/skills for every
+   DB tool, and re-checks persistence in a separate process
+5. a live-ollama round-trip **if** `:11434` is up (else skipped). The live
+   stage only asserts the wiring (a real tool call executes); tool-*selection*
+   quality is a model property — 7B is marginal at 20 tools, so set
+   `LLM_MODEL_OLLAMA=qwen2.5:14b` (or use a hosted model) for a clean pass, or
+   `OLLAMA=1 test/integration.sh` to make the live stage a hard requirement.
 
 For hands-on, step-by-step verification (CLIs, server, packaging, fidelity,
 cross-platform) open **`test-plan-manual.html`** in a browser — an interactive
