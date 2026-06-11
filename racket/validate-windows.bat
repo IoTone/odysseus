@@ -7,6 +7,9 @@ rem Does: deps -> byte-compile -> run the test suite -> build a standalone .exe
 rem and run it. Stops at the first real failure.
 setlocal EnableExtensions
 
+rem Host header — so a captured log identifies the machine.
+echo [host] %OS% %PROCESSOR_ARCHITECTURE% (%NUMBER_OF_PROCESSORS% cores)
+ver
 where racket >nul 2>nul || (echo [X] Racket not found on PATH. See racket\VALIDATION.md step 1. & exit /b 1)
 for /f "delims=" %%v in ('racket --version') do echo [i] %%v
 

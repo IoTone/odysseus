@@ -14,6 +14,16 @@ if (-not (Get-Command racket -ErrorAction SilentlyContinue)) { Write-Host "[X] r
 function Pass($m){ Write-Host "  [ok] $m" }
 function Fail($m){ Write-Host "  [X] $m"; if ($script:Mock) { Stop-Process -Id $script:Mock.Id -Force -ErrorAction SilentlyContinue }; exit 1 }
 
+# Host header — makes a captured log self-identify the machine.
+Write-Host "== 0  host =="
+$os  = (Get-CimInstance Win32_OperatingSystem -ErrorAction SilentlyContinue)
+$cpu = (Get-CimInstance Win32_Processor -ErrorAction SilentlyContinue | Select-Object -First 1)
+Write-Host ("  os    : {0}" -f [System.Environment]::OSVersion.VersionString)
+if ($cpu) { Write-Host ("  cpu   : {0} ({1} cores)" -f $cpu.Name.Trim(), $cpu.NumberOfLogicalProcessors) }
+if ($os)  { Write-Host ("  RAM   : {0:N1} GB" -f ($os.TotalVisibleMemorySize/1MB)) }
+Write-Host ("  racket: {0}" -f ((& racket --version) 2>&1))
+Write-Host ("  date  : {0}" -f (Get-Date -Format o))
+
 # PowerShell does NOT expand *.rkt for raco; explicit list (transitive requires
 # pull in the rest of domain/).
 $entry = @(

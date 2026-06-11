@@ -171,16 +171,38 @@ raco exe -o dist/odysseus-logs.exe cli/odysseus-logs.rkt
 
 ---
 
+## Collecting results (Windows)
+
+Run both, capturing each to a log file, then send the two `.txt` files (each
+starts with a host header that identifies the machine):
+
+```powershell
+cd racket
+# 1) quick smoke (compile + 23-test suite + standalone .exe)
+cmd /c validate-windows.bat 2>&1 | Tee-Object -FilePath "$env:USERPROFILE\odyssey-validate.txt"
+
+# 2) full end-to-end (real agent loop -> tool dispatch -> on-disk SQLite via a
+#    mock LLM; live-ollama stage auto-skips if :11434 isn't up)
+powershell -ExecutionPolicy Bypass -File test\integration.ps1 2>&1 |
+  Tee-Object -FilePath "$env:USERPROFILE\odyssey-integration.txt"
+```
+
+`Tee-Object` shows the run live *and* writes the file. Both end with a clear
+banner: `ALL GREEN` / `INTEGRATION OK (Windows)` on success, or a `[X]` line at
+the first failure. Send both files (or just paste their contents) — the host
+header + `[ok]`/`[X]` lines are all I need.
+
 ## What to report back
 
-For each OS, the four things that matter most:
+For each OS, the things that matter most:
 
 | # | Check | Pass looks like |
 |---|---|---|
 | A | `racket --version` | `v9.2 [cs]` |
 | B | Build (step 3) | no errors |
 | C | Test suite (step 4) | `23 success(es) 0 failure(s)` |
-| D | `raco exe` binary runs (step 6) | prints version, **no crash** |
+| D | End-to-end (step 4b / integration.ps1) | every `[ok]`, `INTEGRATION OK (Windows)` |
+| E | `raco exe` binary runs (step 6) | prints version, **no crash** |
 
 If anything fails, copy the terminal output (especially C and D) and send it
 over — that tells us exactly what to fix for that platform.
