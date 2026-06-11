@@ -118,27 +118,33 @@
 ;; emits content chunks live via #:on-content.
 (define (openai-llm-stream #:endpoint endpoint #:model model
                            #:api-key [api-key #f] #:tools [tools '()]
+                           #:temperature [temperature 0]
                            #:on-content [on-content void])
   (define headers
     (append (list "Content-Type: application/json")
             (if api-key (list (string-append "Authorization: Bearer " api-key)) '())))
   (lambda (messages)
     (define body (hasheq 'model model 'messages messages 'stream #t
-                         'tool_choice "auto" 'tools tools))
+                         'temperature temperature 'tool_choice "auto" 'tools tools))
     (define-values (code in) (http-post-stream endpoint body headers))
     (unless (= code 200) (error 'openai-llm-stream "endpoint returned HTTP ~a" code))
     (stream-deltas->assistant-msg (read-sse-deltas in on-content))))
 
 ;; ---- the #:llm effect ------------------------------------------------------
 ;; (openai-llm …) -> (messages -> assistant-msg)
+;; #:temperature defaults to 0: tool *selection* should be deterministic. At
+;; the provider default (~0.7) small models pick tools flakily (qwen2.5:1.5b
+;; tool-called 3/5 at 0.7 vs 5/5 at 0 — see PERFORMANCE.md); 0 is what makes
+;; tiny local models usable as agents.
 (define (openai-llm #:endpoint endpoint #:model model
-                    #:api-key [api-key #f] #:tools [tools '()])
+                    #:api-key [api-key #f] #:tools [tools '()]
+                    #:temperature [temperature 0])
   (define headers
     (append (list "Content-Type: application/json")
             (if api-key (list (string-append "Authorization: Bearer " api-key)) '())))
   (lambda (messages)
     (define body (hasheq 'model model 'messages messages 'stream #f
-                         'tool_choice "auto" 'tools tools))
+                         'temperature temperature 'tool_choice "auto" 'tools tools))
     (define-values (code resp) (http-post-json endpoint body headers))
     (unless (= code 200)
       (error 'openai-llm "endpoint returned HTTP ~a: ~a" code resp))

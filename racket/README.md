@@ -121,6 +121,11 @@ marginal (tool calls still work; final-answer text sometimes comes back empty
 and error recovery degrades). For the full set prefer `qwen2.5:14b` or a hosted
 model (gpt-4o etc. via the same flags plus `OPENAI_API_KEY`).
 
+`--temperature` defaults to **0** (deterministic tool selection — small models
+pick tools flakily at the provider default). For sizing a host and choosing a
+model — and the measured answer to "what runs on a 4 GB Raspberry Pi 4?" — see
+[`PERFORMANCE.md`](PERFORMANCE.md); benchmark a machine with `test/bench.sh`.
+
 DB-backed tools (`manage_notes`, `manage_tasks`, `manage_calendar`,
 `manage_endpoints`, `manage_mcp`, `manage_webhooks`, `manage_tokens`,
 `manage_documents`, `manage_settings`) operate on the app database

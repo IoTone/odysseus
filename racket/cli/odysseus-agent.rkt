@@ -106,8 +106,9 @@
   (define max-rounds (let ([m (opt a "--max-rounds")]) (if m (or (string->number m) 12) 12)))
   (define owner (opt a "--owner"))   ; trusted identity, like the X-Odysseus-User header
   (define schemas (select-schemas (opt a "--tools")))   ; #f → all tools
+  (define temperature (let ([t (opt a "--temperature")]) (if t (or (string->number t) 0) 0)))
   ;; prompt = first positional token that isn't a flag or a flag's value
-  (define flag-vals (filter values (map (lambda (f) (opt a f)) '("--endpoint" "--model" "--max-rounds" "--owner" "--tools"))))
+  (define flag-vals (filter values (map (lambda (f) (opt a f)) '("--endpoint" "--model" "--max-rounds" "--owner" "--tools" "--temperature"))))
   (define prompt (for/first ([x (in-list a)]
                              #:when (and (not (flag-token? x)) (not (member x flag-vals)))) x))
   (unless endpoint (fail "set --endpoint or LLM_ENDPOINT (OpenAI-compatible /v1/chat/completions URL)" #:code 2))
@@ -117,8 +118,10 @@
   (define llm
     (if stream?
         (openai-llm-stream #:endpoint endpoint #:model model #:api-key api-key
-                           #:tools schemas #:on-content (lambda (c) (eprintf "~a" c)))
-        (openai-llm #:endpoint endpoint #:model model #:api-key api-key #:tools schemas)))
+                           #:tools schemas #:temperature temperature
+                           #:on-content (lambda (c) (eprintf "~a" c)))
+        (openai-llm #:endpoint endpoint #:model model #:api-key api-key
+                    #:tools schemas #:temperature temperature)))
   (define result
     (run-agent (list (hasheq 'role "system" 'content (assemble-prompt #:tools (tool-names schemas)))
                      (hasheq 'role "user" 'content prompt))
