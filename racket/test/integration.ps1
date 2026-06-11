@@ -92,7 +92,7 @@ if ($ollamaUp) {
   if ($tags -like "*$model*") {
     $env:LLM_ENDPOINT = "http://127.0.0.1:11434/v1/chat/completions"; $env:LLM_MODEL = $model
     $res = (& racket cli/odysseus-agent.rkt "Use the manage_notes tool to create a checklist note titled 'Live Intg' with one item 'ship it'." --owner alice --pretty --max-rounds 6 2>$null) | Out-String
-    if ($res -match '"tool":"manage_') {
+    if ($res -match '"tool": *"manage_') {
       Pass "live model issued a real tool call, executed end-to-end ($model)"
       if ($res -like '*Live Intg*') { Pass "manage_notes created the note via live model" }
       else { Write-Host "  [note] model didn't land the exact note (tool selection varies at 20 tools); wiring verified" }

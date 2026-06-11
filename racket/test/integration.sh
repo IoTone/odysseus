@@ -92,7 +92,7 @@ if curl -s -m2 http://127.0.0.1:11434/api/version >/dev/null 2>&1; then
     res=$(LLM_ENDPOINT="http://127.0.0.1:11434/v1/chat/completions" LLM_MODEL="$MODEL" \
       racket cli/odysseus-agent.rkt "Use the manage_notes tool to create a checklist note titled 'Live Intg' with one item 'ship it'." \
       --owner alice --pretty --max-rounds 6 2>/dev/null)
-    if echo "$res" | grep -qE '"tool":"manage_'; then
+    if echo "$res" | grep -qE '"tool": *"manage_'; then
       pass "live model issued a real tool call, executed end-to-end ($MODEL)"
       echo "$res" | grep -qF "Live Intg" \
         && pass "manage_notes created the note via live model" \
