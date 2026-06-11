@@ -1,4 +1,4 @@
-# racket/test/integration.ps1 — Windows end-to-end check for the Racket port.
+# racket/test/integration.ps1 - Windows end-to-end check for the Racket port.
 # PowerShell sibling of test/integration.sh: compile -> suite -> mock-LLM
 # end-to-end (the REAL agent loop -> tool dispatch -> on-disk SQLite, no model)
 # -> optional live ollama. Fidelity diffs are Linux-CI's job (need the app
@@ -14,7 +14,7 @@ if (-not (Get-Command racket -ErrorAction SilentlyContinue)) { Write-Host "[X] r
 function Pass($m){ Write-Host "  [ok] $m" }
 function Fail($m){ Write-Host "  [X] $m"; if ($script:Mock) { Stop-Process -Id $script:Mock.Id -Force -ErrorAction SilentlyContinue }; exit 1 }
 
-# Host header — makes a captured log self-identify the machine.
+# Host header - makes a captured log self-identify the machine.
 Write-Host "== 0  host =="
 $os  = (Get-CimInstance Win32_OperatingSystem -ErrorAction SilentlyContinue)
 $cpu = (Get-CimInstance Win32_Processor -ErrorAction SilentlyContinue | Select-Object -First 1)
@@ -54,7 +54,7 @@ $env:MOCK_PORT = "$Port"; $env:MOCK_CALL_FILE = $CallFile
 
 function Agent-Run($tool, $argsJson) {
   # call file = {"name": tool, "arguments": "<args-json-as-string>"}
-  # WriteAllText → UTF-8 with NO BOM (Set-Content -Encoding utf8 adds a BOM on
+  # WriteAllText -> UTF-8 with NO BOM (Set-Content -Encoding utf8 adds a BOM on
   # PowerShell 5.1, which would break the mock's string->jsexpr).
   $json = @{ name = $tool; arguments = $argsJson } | ConvertTo-Json -Compress
   [System.IO.File]::WriteAllText($CallFile, $json, (New-Object System.Text.UTF8Encoding $false))
@@ -98,7 +98,7 @@ if ($ollamaUp) {
       else { Write-Host "  [note] model didn't land the exact note (tool selection varies at 20 tools); wiring verified" }
     } else {
       Write-Host ($res.Substring(0,[Math]::Min(900,$res.Length)))
-      Write-Host "  [warn] live model issued no tool call — model-quality, not wiring (try LLM_MODEL_OLLAMA=qwen2.5:14b)"
+      Write-Host "  [warn] live model issued no tool call - model-quality, not wiring (try LLM_MODEL_OLLAMA=qwen2.5:14b)"
       if ($env:OLLAMA -eq '1') { Fail "OLLAMA=1 but live model issued no tool call" }
     }
   } else { Write-Host "  [skip] ollama up but model '$model' not pulled"; if ($env:OLLAMA -eq '1') { Fail "OLLAMA=1 but model missing" } }
@@ -107,5 +107,5 @@ if ($ollamaUp) {
 Remove-Item -Recurse -Force $Work -ErrorAction SilentlyContinue
 Write-Host ""
 Write-Host "============================================================"
-Write-Host " INTEGRATION OK (Windows) — compile, suite, mock end-to-end"
+Write-Host " INTEGRATION OK (Windows) - compile, suite, mock end-to-end"
 Write-Host "============================================================"
