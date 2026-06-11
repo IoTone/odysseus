@@ -60,8 +60,24 @@
                (tool-result->text (manage-skills (data-dir) content #:owner owner)))
              "manage_calendar" (db-tool manage-calendar)))
 
-(define (tool-names)
-  (for/list ([s (in-list (all-tool-schemas))]) (hash-ref (hash-ref s 'function) 'name)))
+(define (schema-name s) (hash-ref (hash-ref s 'function) 'name))
+(define (tool-names schemas) (map schema-name schemas))
+
+;; Restrict the advertised tools to a comma-separated subset (order preserved
+;; from the registry). Small local models degrade as the toolset grows — on a
+;; 4GB Pi a 1.5–3B model needs a handful of tools, not all 20. Unknown names
+;; fail loudly so a typo doesn't silently shrink the toolset.
+(define (select-schemas csv)
+  (cond
+    [(not csv) (all-tool-schemas)]
+    [else
+     (define want (map string-trim (string-split csv ",")))
+     (define known (tool-names (all-tool-schemas)))
+     (define bad (filter (lambda (n) (not (member n known))) want))
+     (unless (null? bad)
+       (fail (format "unknown tool(s) in --tools: ~a (known: ~a)"
+                     (string-join bad ", ") (string-join known ", ")) #:code 2))
+     (for/list ([s (in-list (all-tool-schemas))] #:when (member (schema-name s) want)) s)]))
 
 (define (opt args flag) (let loop ([xs args])
                           (cond [(null? xs) #f]
@@ -89,8 +105,9 @@
   (define api-key (or (getenv "OPENAI_API_KEY") (getenv "LLM_API_KEY")))
   (define max-rounds (let ([m (opt a "--max-rounds")]) (if m (or (string->number m) 12) 12)))
   (define owner (opt a "--owner"))   ; trusted identity, like the X-Odysseus-User header
+  (define schemas (select-schemas (opt a "--tools")))   ; #f → all tools
   ;; prompt = first positional token that isn't a flag or a flag's value
-  (define flag-vals (filter values (map (lambda (f) (opt a f)) '("--endpoint" "--model" "--max-rounds" "--owner"))))
+  (define flag-vals (filter values (map (lambda (f) (opt a f)) '("--endpoint" "--model" "--max-rounds" "--owner" "--tools"))))
   (define prompt (for/first ([x (in-list a)]
                              #:when (and (not (flag-token? x)) (not (member x flag-vals)))) x))
   (unless endpoint (fail "set --endpoint or LLM_ENDPOINT (OpenAI-compatible /v1/chat/completions URL)" #:code 2))
@@ -100,10 +117,10 @@
   (define llm
     (if stream?
         (openai-llm-stream #:endpoint endpoint #:model model #:api-key api-key
-                           #:tools (all-tool-schemas) #:on-content (lambda (c) (eprintf "~a" c)))
-        (openai-llm #:endpoint endpoint #:model model #:api-key api-key #:tools (all-tool-schemas))))
+                           #:tools schemas #:on-content (lambda (c) (eprintf "~a" c)))
+        (openai-llm #:endpoint endpoint #:model model #:api-key api-key #:tools schemas)))
   (define result
-    (run-agent (list (hasheq 'role "system" 'content (assemble-prompt #:tools (tool-names)))
+    (run-agent (list (hasheq 'role "system" 'content (assemble-prompt #:tools (tool-names schemas)))
                      (hasheq 'role "user" 'content prompt))
                #:llm llm #:exec (make-exec #:handlers (make-app-handlers owner)) #:max-rounds max-rounds))
   (emit (hasheq 'status (symbol->string (agent-result-status result))

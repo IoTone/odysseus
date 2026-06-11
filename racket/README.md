@@ -109,6 +109,11 @@ endpoint. To run fully offline with [ollama](https://ollama.com):
       racket cli/odysseus-agent.rkt "list the .rkt files here, how many?" --pretty
     # add --stream for live SSE output (content chunks -> stderr)
 
+    # --tools restricts the advertised set (comma-separated). Small models
+    # degrade as the toolset grows, so trim it for low-RAM / tiny-model hosts:
+    racket cli/odysseus-agent.rkt "add a note: buy milk" --owner me \
+      --tools manage_notes,manage_tasks,manage_calendar --model qwen2.5:1.5b ...
+
 **Minimal model: `qwen2.5:7b`.** `qwen2.5:3b` is marginal — it handles a system
 prompt with up to ~7 tools, but returns empty content with the full agent prompt
 + the full toolset. Note: with the toolset now at 20 tools, even 7b is getting

@@ -19,10 +19,13 @@
 (define port (string->number (or (getenv "MOCK_PORT") "8900")))
 (define call-file (or (getenv "MOCK_CALL_FILE") "/tmp/mock-call.json"))
 
+(define BOM (integer->char #xFEFF))
+(define (strip-bom s)                                  ; tolerate a UTF-8 BOM (Windows editors)
+  (if (and (> (string-length s) 0) (char=? (string-ref s 0) BOM)) (substring s 1) s))
 (define (tool-call-response)
   (define spec
     (with-handlers ([exn:fail? (lambda (_) (hasheq 'name "ls" 'arguments "{}"))])
-      (string->jsexpr (file->string call-file))))
+      (string->jsexpr (strip-bom (file->string call-file)))))
   (hasheq 'id "chatcmpl-mock" 'object "chat.completion" 'model "mock"
           'choices
           (list (hasheq 'index 0 'finish_reason "tool_calls"

@@ -8,11 +8,14 @@ note it and report back (a screenshot or the terminal text is perfect).
 > Companion to the interactive `test-plan-manual.html` (open it in a browser for
 > a checkbox version). This file is the linear "just run these" path.
 >
-> **On macOS/Linux, the single fullest check is `racket/test/integration.sh`** —
-> compile → suite → fidelity → real-agent-loop end-to-end (mock LLM, no model
-> needed) → optional live ollama. The steps below are the per-OS breakdown +
-> the packaging (`raco exe`) check that the integration script doesn't cover.
-> (On bash; Windows uses `validate-windows.bat`.)
+> **The single fullest check** runs compile → suite → real-agent-loop
+> end-to-end (a scripted mock LLM, no model needed) → optional live ollama:
+> - macOS / Linux: `racket/test/integration.sh` (also runs Python fidelity)
+> - Windows: `powershell -ExecutionPolicy Bypass -File racket\test\integration.ps1`
+>
+> The per-OS steps below are the breakdown + the packaging (`raco exe`) check
+> the integration scripts don't cover. `validate-windows.bat` remains the quick
+> compile+suite+exe smoke; `integration.ps1` is the fuller end-to-end.
 
 Pinned Racket version: **9.2 (CS)**. Run all commands from the **repo root**
 unless a step says `cd racket`.
@@ -134,6 +137,16 @@ Expect: no errors.
 racket test/run-tests.rkt
 ```
 Expect: `23 success(es) 0 failure(s) 0 error(s) 23 test(s) run`.
+
+### 4b. End-to-end through the real agent loop  *(in racket\)*
+The fuller check — drives loop → tool dispatch → on-disk SQLite via a scripted
+mock LLM (no model), then an optional live-ollama round-trip if `:11434` is up:
+```powershell
+powershell -ExecutionPolicy Bypass -File test\integration.ps1
+```
+Expect: the `[ok]` lines for every `manage_*` scenario and
+`INTEGRATION OK (Windows)`. (The live stage may print `[warn]` on a small local
+model — that's model quality, not a wiring failure; see PERFORMANCE.md.)
 
 ### 5. Smoke the CLIs and server
 ```powershell
