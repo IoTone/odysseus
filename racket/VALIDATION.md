@@ -145,8 +145,17 @@ mock LLM (no model), then an optional live-ollama round-trip if `:11434` is up:
 powershell -ExecutionPolicy Bypass -File test\integration.ps1
 ```
 Expect: the `[ok]` lines for every `manage_*` scenario and
-`INTEGRATION OK (Windows)`. (The live stage may print `[warn]` on a small local
-model — that's model quality, not a wiring failure; see PERFORMANCE.md.)
+`INTEGRATION OK (Windows)`. The mock-LLM stage needs **no model** — it always
+runs. The live-ollama stage auto-skips unless ollama is up.
+
+To exercise the live stage, set up ollama first (installs it, starts the
+service, pulls a model, smoke-tests tool_calls):
+```powershell
+powershell -ExecutionPolicy Bypass -File test\setup-ollama-windows.ps1
+# smaller host: ... setup-ollama-windows.ps1 -Model qwen2.5:3b   (see PERFORMANCE.md)
+```
+Then `$env:LLM_MODEL_OLLAMA='qwen2.5:7b'` before `integration.ps1`. (The live
+stage may print `[warn]` on a small model — model quality, not a wiring bug.)
 
 ### 5. Smoke the CLIs and server
 ```powershell
