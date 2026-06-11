@@ -70,6 +70,11 @@ install` step. From the repo root:
 build *is* a passing test run. Installed commands are wrappers around nixpkgs'
 `racket` (no `raco exe`), which is bulletproof on Nix's read-only store.
 
+**Deploying across many machines** (macOS, Windows, MTK Genio 720, Ubuntu,
+NixOS) with a binary cache instead of per-host setup scripts — and how that
+collapses portability testing to two CI lanes — is laid out in
+[`../NIX_DEPLOYMENT.md`](../NIX_DEPLOYMENT.md).
+
 ## Dev workflow
 
 > On Nix, skip this — `nix develop` already sets everything up.
