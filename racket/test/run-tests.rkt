@@ -583,8 +583,10 @@
                     "URL must not point to private/internal addresses")
       (check-equal? (hash-ref (manage-webhooks c "{\"action\":\"add\",\"url\":\"ftp://example.com\"}") 'error)
                     "URL must use http or https")
+      ;; public IP literal (8.8.8.8) — no DNS, so this stays hermetic under the
+      ;; Nix build sandbox; URL passes validation, then events validation fails.
       (check-true (string-prefix?
-                   (hash-ref (manage-webhooks c "{\"action\":\"add\",\"url\":\"https://example.com/h\",\"events\":\"bogus\"}") 'error)
+                   (hash-ref (manage-webhooks c "{\"action\":\"add\",\"url\":\"https://8.8.8.8/h\",\"events\":\"bogus\"}") 'error)
                    "Invalid events: bogus. Allowed:"))
       ;; validators directly (no DNS dependency)
       (check-equal? (validate-events "chat.completed , webhook.test") "chat.completed,webhook.test")

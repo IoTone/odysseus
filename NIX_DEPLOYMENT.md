@@ -12,9 +12,11 @@ compiler, no `raco pkg install`, no PATH munging, no per-distro dependency
 script. Windows is the one genuine exception; we keep its existing native path
 and contain the blast radius.
 
-The repo already has a working multi-system `flake.nix` (4 systems,
-wrapper-based install, test suite in `checkPhase`). This plan extends it; the
-snippets below are the proposed delta, not yet committed.
+The repo has a working multi-system `flake.nix` (4 systems, wrapper-based
+install, test suite in `checkPhase`). This plan extends it: the §4a–4c deltas
+(derived build list, NixOS module, OCI image) are **landed and validated
+locally**; the cache/CI/remote-builder pieces (§2–3) and §4d are the
+infra-side work still to do.
 
 ---
 
@@ -94,25 +96,26 @@ natively per arch** and cache the result. Three ways, pick per budget:
 
 ---
 
-## 4. Proposed flake delta (sample packaging)
+## 4. Flake delta
 
-The current flake produces wrapper-based CLIs. Add four things:
+§4a–4c are **landed** in `flake.nix` (validated locally: package builds with
+the suite hermetic in the sandbox, the NixOS module evaluates inside a real
+`nixosSystem`, the OCI image streams). §4d is still proposed. The current flake
+produces wrapper-based CLIs plus:
 
-### 4a. Derive the build list (kill the drift)
+### 4a. Derive the build list (kill the drift) — ✅ landed
 
-`buildPhase` hardcodes the `raco make` file list while `entrypoints` is a
-separate variable — they drift (a review finding). Generate one from the other:
+`buildPhase` used to hardcode the `raco make` file list while `entrypoints` was
+a separate variable — they drifted (a review finding). Now one is derived from
+the other (`makeList` from `entrypoints`), so adding a CLI updates both the
+build and the wrappers from a single list.
 
-```nix
-let
-  cliFiles = builtins.map (e: "cli/${e}.rkt") entrypoints;
-  makeList = builtins.concatStringsSep " "
-    ([ "config.rkt" ] ++ cliFiles
-     ++ [ "server/main.rkt" "server/proxy.rkt" "test/run-tests.rkt" "test/seed-db.rkt" ]);
-in ... buildPhase = "raco make ${makeList}"; ...
-```
+> Hermeticity note found while validating this: the Nix build sandbox has **no
+> network**, which surfaced a non-hermetic test (a webhook assertion that
+> resolved a DNS name). Fixed to use a public IP literal. This is the §7 payoff
+> in miniature — the sandbox *is* a portability check.
 
-### 4b. A NixOS module (declarative deploy — replaces a service setup script)
+### 4b. NixOS module (declarative deploy) — ✅ landed
 
 ```nix
 # nixosModules.odysseus
@@ -144,7 +147,7 @@ A NixOS device (standalone box *or* a Genio running NixOS) then needs only:
 sets up ollama with the model preloaded** — the entire runtime, declaratively,
 zero imperative scripts.
 
-### 4c. An OCI image (for container-capable devices / k8s / a Genio on Docker)
+### 4c. OCI image (container-capable devices / k8s / Genio on Docker) — ✅ landed
 
 ```nix
 packages.<system>.container = pkgs.dockerTools.streamLayeredImage {
@@ -155,7 +158,7 @@ packages.<system>.container = pkgs.dockerTools.streamLayeredImage {
 # nix build .#container | docker load   (arch-matched image, reproducible)
 ```
 
-### 4d. The mega integration test as a flake check (portability, once)
+### 4d. integration.sh as a flake check (portability, once) — proposed
 
 ```nix
 checks.<system>.integration = pkgs.runCommand "odysseus-integration" { } ''

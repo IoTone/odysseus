@@ -18,75 +18,144 @@
         "odysseus-research" "odysseus-mcp" "odysseus-calendar"
         "odysseus-agent"
       ];
+
+      # Single source of truth for what gets byte-compiled. Derived from
+      # `entrypoints` so the CLI list can't drift from the build list; the
+      # remaining requires (domain/*, server/*) are pulled in transitively by
+      # `raco make`.
+      makeList = builtins.concatStringsSep " " (
+        [ "config.rkt" ]
+        ++ (builtins.map (e: "cli/${e}.rkt") entrypoints)
+        ++ [ "server/main.rkt" "server/proxy.rkt" "test/run-tests.rkt" "test/seed-db.rkt" ]
+      );
+
+      mkOdysseus = pkgs: pkgs.stdenv.mkDerivation {
+        pname = "odysseus-racket";
+        version = "0.1.0";
+        src = ./racket;
+
+        nativeBuildInputs = [ pkgs.racket pkgs.makeWrapper ];
+
+        buildPhase = ''
+          runHook preBuild
+          export HOME=$TMPDIR
+          export PLTCOLLECTS="$PWD/pkgs:"
+          raco make ${makeList}
+          runHook postBuild
+        '';
+
+        # Run our portable suite as part of the build (hermetic: no network).
+        doCheck = true;
+        checkPhase = ''
+          runHook preCheck
+          export HOME=$TMPDIR
+          export PLTCOLLECTS="$PWD/pkgs:"
+          racket test/run-tests.rkt
+          runHook postCheck
+        '';
+
+        # Install the source+bytecode and wrap `racket` per entrypoint. We use
+        # wrappers (not `raco exe`) — bulletproof on Nix's read-only store, and
+        # the kits resolve via PLTCOLLECTS pointed at the installed copy.
+        installPhase = ''
+          runHook preInstall
+          mkdir -p $out/share/odysseus $out/bin
+          cp -r . $out/share/odysseus
+          for t in ${builtins.toString entrypoints}; do
+            makeWrapper ${pkgs.racket}/bin/racket $out/bin/$t \
+              --add-flags "$out/share/odysseus/cli/$t.rkt" \
+              --set PLTCOLLECTS "$out/share/odysseus/pkgs:"
+          done
+          makeWrapper ${pkgs.racket}/bin/racket $out/bin/odysseus-server \
+            --add-flags "$out/share/odysseus/server/main.rkt" \
+            --set PLTCOLLECTS "$out/share/odysseus/pkgs:"
+          makeWrapper ${pkgs.racket}/bin/racket $out/bin/odysseus-proxy \
+            --add-flags "$out/share/odysseus/server/proxy.rkt" \
+            --set PLTCOLLECTS "$out/share/odysseus/pkgs:"
+          runHook postInstall
+        '';
+
+        meta = with pkgs.lib; {
+          description = "Odysseus Racket port — CLIs and web server";
+          platforms = systems;
+          license = licenses.mit;
+          mainProgram = "odysseus-logs";
+        };
+      };
     in
     {
       # ---- packages: `nix build` / `nix profile install` ---------------------
-      packages = forAll (pkgs: rec {
-        odysseus = pkgs.stdenv.mkDerivation {
-          pname = "odysseus-racket";
-          version = "0.1.0";
-          src = ./racket;
-
-          nativeBuildInputs = [ pkgs.racket pkgs.makeWrapper ];
-
-          buildPhase = ''
-            runHook preBuild
-            export HOME=$TMPDIR
-            export PLTCOLLECTS="$PWD/pkgs:"
-            raco make config.rkt \
-              cli/odysseus-logs.rkt cli/odysseus-preset.rkt cli/odysseus-signature.rkt \
-              cli/odysseus-notes.rkt cli/odysseus-sessions.rkt cli/odysseus-tasks.rkt \
-              cli/odysseus-research.rkt cli/odysseus-mcp.rkt cli/odysseus-calendar.rkt cli/odysseus-agent.rkt \
-              server/main.rkt server/proxy.rkt test/run-tests.rkt test/seed-db.rkt
-            runHook postBuild
-          '';
-
-          # Run our portable suite as part of the build.
-          doCheck = true;
-          checkPhase = ''
-            runHook preCheck
-            export HOME=$TMPDIR
-            export PLTCOLLECTS="$PWD/pkgs:"
-            racket test/run-tests.rkt
-            runHook postCheck
-          '';
-
-          # Install the source+bytecode and wrap `racket` per entrypoint. We use
-          # wrappers (not `raco exe`) — bulletproof on Nix's read-only store, and
-          # the kits resolve via PLTCOLLECTS pointed at the installed copy.
-          installPhase = ''
-            runHook preInstall
-            mkdir -p $out/share/odysseus $out/bin
-            cp -r . $out/share/odysseus
-            for t in ${builtins.toString entrypoints}; do
-              makeWrapper ${pkgs.racket}/bin/racket $out/bin/$t \
-                --add-flags "$out/share/odysseus/cli/$t.rkt" \
-                --set PLTCOLLECTS "$out/share/odysseus/pkgs:"
-            done
-            makeWrapper ${pkgs.racket}/bin/racket $out/bin/odysseus-server \
-              --add-flags "$out/share/odysseus/server/main.rkt" \
-              --set PLTCOLLECTS "$out/share/odysseus/pkgs:"
-            makeWrapper ${pkgs.racket}/bin/racket $out/bin/odysseus-proxy \
-              --add-flags "$out/share/odysseus/server/proxy.rkt" \
-              --set PLTCOLLECTS "$out/share/odysseus/pkgs:"
-            runHook postInstall
-          '';
-
-          meta = with pkgs.lib; {
-            description = "Odysseus Racket port — CLIs and web server";
-            platforms = systems;
-            license = licenses.mit;
-            mainProgram = "odysseus-logs";
+      packages = forAll (pkgs:
+        let odysseus = mkOdysseus pkgs; in
+        {
+          inherit odysseus;
+          default = odysseus;
+        }
+        # OCI image for container-capable hosts (k8s, a Genio on Docker).
+        # dockerTools is Linux-only, so guard by platform.
+        // nixpkgs.lib.optionalAttrs pkgs.stdenv.isLinux {
+          container = pkgs.dockerTools.streamLayeredImage {
+            name = "odysseus";
+            tag = "0.1.0";
+            contents = [ odysseus pkgs.cacert ];
+            config = {
+              Entrypoint = [ "${odysseus}/bin/odysseus-agent" ];
+              Env = [ "ODYSSEUS_DATA_DIR=/data" ];
+            };
           };
-        };
-
-        default = odysseus;
-      });
+        });
 
       # ---- checks: `nix flake check` builds the package (runs the test suite) -
       checks = forAll (pkgs: {
         odysseus = self.packages.${pkgs.stdenv.hostPlatform.system}.odysseus;
       });
+
+      # ---- NixOS module: declarative deploy (agent CLIs + optional server) ----
+      # On a NixOS box or a Genio running NixOS:
+      #   imports = [ odysseus.nixosModules.odysseus ];
+      #   services.odysseus.enable = true;          # CLIs on PATH
+      #   services.odysseus.server.enable = true;   # + systemd web server
+      #   services.odysseus.ollama.enable = true;   # + local LLM, model preloaded
+      nixosModules.odysseus = { config, lib, pkgs, ... }:
+        let cfg = config.services.odysseus;
+            pkg = self.packages.${pkgs.stdenv.hostPlatform.system}.odysseus;
+        in {
+          options.services.odysseus = {
+            enable = lib.mkEnableOption "Odysseus agent CLIs on PATH";
+            package = lib.mkOption {
+              type = lib.types.package; default = pkg;
+              description = "The odysseus package to install.";
+            };
+            server.enable = lib.mkEnableOption "the Odysseus web server (systemd)";
+            server.port = lib.mkOption { type = lib.types.port; default = 8099; };
+            ollama.enable = lib.mkEnableOption "a local ollama for the agent";
+            ollama.models = lib.mkOption {
+              type = lib.types.listOf lib.types.str; default = [ "qwen2.5:7b" ];
+              description = "Models to preload (see PERFORMANCE.md for sizing).";
+            };
+          };
+          config = lib.mkIf cfg.enable (lib.mkMerge [
+            { environment.systemPackages = [ cfg.package ]; }
+            (lib.mkIf cfg.server.enable {
+              systemd.services.odysseus-server = {
+                description = "Odysseus web server";
+                wantedBy = [ "multi-user.target" ];
+                after = [ "network.target" ];
+                serviceConfig = {
+                  ExecStart = "${cfg.package}/bin/odysseus-server --port ${toString cfg.server.port}";
+                  DynamicUser = true;
+                  StateDirectory = "odysseus";
+                  Environment = "ODYSSEUS_DATA_DIR=/var/lib/odysseus";
+                  Restart = "on-failure";
+                };
+              };
+            })
+            (lib.mkIf cfg.ollama.enable {
+              # ollama is in nixpkgs — no setup script needed on Nix hosts.
+              services.ollama = { enable = true; loadModels = cfg.ollama.models; };
+            })
+          ]);
+        };
 
       # ---- apps: `nix run .#odysseus-logs -- list` ---------------------------
       apps = forAll (pkgs:
