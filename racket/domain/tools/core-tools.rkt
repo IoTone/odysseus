@@ -10,11 +10,11 @@
 (require "dsl.rkt")
 
 (define-tool bash
-  #:description "Run a shell command (full access)"
+  #:description "Run a shell command (full access). Prefer a dedicated tool whenever one fits the job (reading, writing, editing, searching, or listing files); use bash only for what no dedicated tool covers (installs, git, builds, running programs, system info). Do NOT create or edit files via bash redirects/heredocs/sed -- use the dedicated file tools."
   (command string #:description "The shell command to execute"))
 
 (define-tool python
-  #:description "Execute Python code to compute a result or test something"
+  #:description "Execute Python code to compute a result or test something. Prefer a dedicated tool whenever one fits the job (reading, writing, or searching files); use python only for computation, data processing, or scripting no dedicated tool covers."
   (code string #:description "Python code to execute"))
 
 (define-tool web_search
@@ -24,8 +24,9 @@
                #:description "Optional freshness filter for news/latest/today queries"))
 
 (define-tool web_fetch
-  #:description "Fetch and read the text content of a specific URL the user names (e.g. 'check example.com', 'what's on this page <url>'). Use when you already have a concrete URL/domain. NOT for open-ended searches (use web_search) or 'research X' jobs (use trigger_research)."
-  (url string #:description "The URL or domain to fetch (http/https; a bare domain like example.com is fine)"))
+  #:description "Fetch and read the text content of a specific URL the user names (e.g. 'check example.com', 'what's on this page <url>'). Use when you already have a concrete URL/domain. NOT for open-ended searches (use web_search) or 'research X' jobs (use trigger_research). Downloads are size-budgeted; a '[partial content: ...]' notice in the result means the body was cut short and you can re-call with full=true for the rest."
+  (url string #:description "The URL or domain to fetch (http/https; a bare domain like example.com is fine)")
+  (full boolean #:optional #:description "Raise the download budget to the hard cap for large pages/files. Use only after a result reported partial content."))
 
 (define-tool read_file
   #:description "Read a file from disk. Optionally read a line range with offset/limit for large files."
