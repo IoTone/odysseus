@@ -158,22 +158,33 @@ packages.<system>.container = pkgs.dockerTools.streamLayeredImage {
 # nix build .#container | docker load   (arch-matched image, reproducible)
 ```
 
-### 4d. integration.sh as a flake check (portability, once) — proposed
+### 4d. integration.sh as a flake check (portability, once) — ✅ landed
 
 ```nix
-checks.<system>.integration = pkgs.runCommand "odysseus-integration" { } ''
-  cd ${./racket}
-  ${pkgs.racket}/bin/racket test/run-tests.rkt          # stage 2
-  # mock end-to-end (stages 1+4): loopback works in the Nix sandbox; ollama
-  # auto-skips (no network). Fidelity (stage 3) needs the Python venv → CI-only.
-  ...
-  touch $out
-'';
+checks.<system>.integration = pkgs.runCommand "odysseus-integration"
+  { nativeBuildInputs = [ pkgs.racket pkgs.python3 pkgs.curl pkgs.bash pkgs.coreutils ]; }
+  ''
+    export HOME=$TMPDIR
+    cp -r ${./racket} racket && chmod -R u+w racket
+    cd racket
+    export PLTCOLLECTS="$PWD/pkgs:"
+    bash test/integration.sh        # the SAME script the developer runs
+    touch $out
+  '';
 ```
+
+The check runs the developer's `test/integration.sh` verbatim against the
+racket-only source. In the sandbox: compile (1) + suite (2) + mock end-to-end
+(4) all run — loopback is up, the DB/skills land in `$TMPDIR`, the mock LLM
+needs no network. Fidelity (3) self-skips when the `ci/` + Python tree isn't in
+the checkout; live ollama (5) self-skips with nothing on `:11434`. Validated
+locally: `nix build .#checks.x86_64-linux.integration -L` → `INTEGRATION OK`.
 
 Now `nix flake check` on each CI arch runs the **same** end-to-end the
 developer runs, so "does it work on aarch64-linux / aarch64-darwin?" is answered
-by CI, not by shipping to a Genio and hoping.
+by CI, not by shipping to a Genio and hoping. (The fidelity drift-gate against
+live Python is the complementary full-checkout lane — `bash
+racket/test/integration.sh` from the repo root, where `ci/` and `python3` exist.)
 
 ---
 

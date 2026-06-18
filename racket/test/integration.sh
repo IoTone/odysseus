@@ -35,7 +35,11 @@ echo "$out" | grep -q " 0 failure(s) 0 error(s)" && pass "$(echo "$out" | tail -
 echo "== 3/5  fidelity (schema + converter vs Python) =="
 # Prefer the app venv (the converter check imports src.agent_tools → fastapi…)
 [ -x "$ROOT/../.venv/bin/python" ] && export PATH="$ROOT/../.venv/bin:$PATH"
-if command -v python3 >/dev/null && python3 -c 'import ast,json' 2>/dev/null; then
+if [ ! -f ../ci/fidelity-tools.sh ]; then
+  # racket-only checkout (e.g. the Nix flake's `src = ./racket`): the Python tree
+  # and ci/ scripts aren't present. Fidelity is a full-checkout CI gate; skip here.
+  echo "  [skip] fidelity (ci/ + Python tree not in this checkout — full-repo CI gate)"
+elif command -v python3 >/dev/null && python3 -c 'import ast,json' 2>/dev/null; then
   ../ci/fidelity-tools.sh >/dev/null 2>&1 && pass "schemas byte-identical (schema-only, no venv needed)" || fail "schema fidelity"
   if (cd "$ROOT/.." && python3 -c 'import src.agent_tools') >/dev/null 2>&1; then   # importable from repo root
     ../ci/fidelity-convert.sh >/dev/null 2>&1 && pass "converter cases match live Python" || fail "converter fidelity"

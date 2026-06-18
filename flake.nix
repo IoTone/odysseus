@@ -106,8 +106,28 @@
         });
 
       # ---- checks: `nix flake check` builds the package (runs the test suite) -
+      # plus a hermetic end-to-end gate so "does the port work on this arch?" is
+      # answered by CI, not by shipping to a Genio and hoping.
       checks = forAll (pkgs: {
         odysseus = self.packages.${pkgs.stdenv.hostPlatform.system}.odysseus;
+
+        # §4d: run the SAME integration.sh the developer runs, against the
+        # racket-only source. compile (1) + suite (2) + mock end-to-end (4) all
+        # run in the sandbox: loopback is up, the DB/skills go to $TMPDIR, the
+        # mock LLM needs no network. Fidelity (3) self-skips with no ci/ tree;
+        # live ollama (5) self-skips with nothing on :11434.
+        integration = pkgs.runCommand "odysseus-integration"
+          {
+            nativeBuildInputs = [ pkgs.racket pkgs.python3 pkgs.curl pkgs.bash pkgs.coreutils ];
+          }
+          ''
+            export HOME=$TMPDIR
+            cp -r ${./racket} racket && chmod -R u+w racket
+            cd racket
+            export PLTCOLLECTS="$PWD/pkgs:"
+            bash test/integration.sh
+            touch $out
+          '';
       });
 
       # ---- NixOS module: declarative deploy (agent CLIs + optional server) ----
