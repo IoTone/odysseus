@@ -18,7 +18,8 @@
 
 (require racket/match
          racket/string
-         "../tools/convert.rkt")     ; tool-block, tool-block-type/content
+         "../tools/convert.rkt"      ; tool-block, tool-block-type/content
+         "prompt-security.rkt")      ; untrusted-context-message (#1629)
 
 (provide (struct-out assistant-msg)
          (struct-out agent-result)
@@ -71,8 +72,15 @@
                         (hasheq 'role "tool"
                                 'tool_call_id (hash-ref rc 'id "call_0")
                                 'content (cdr r))))
+                ;; #1629: the non-native (prompted) path feeds tool output back
+                ;; as a user turn — wrap it as untrusted data so prompt-injection
+                ;; inside a tool result (fetched page, file read, MCP/email body)
+                ;; is treated as data, not instructions. THREAT_MODEL.md requires
+                ;; tool output go through the untrusted-context wrapper; the
+                ;; native path above is covered by the tool-role protocol instead.
                 (list (hasheq 'role "assistant" 'content (assistant-msg-text msg))
-                      (hasheq 'role "user" 'content (results->text results)))))
+                      (untrusted-context-message "tool execution results"
+                                                 (results->text results)))))
           (loop (append messages follow-ups)
                 (add1 round)
                 (cons (list 'tools round results) tx))])])))

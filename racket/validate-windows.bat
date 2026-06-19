@@ -46,7 +46,7 @@ echo [ok] build clean
 racket cli/odysseus-agent.rkt --version || (echo [X] agent CLI failed to load & popd & exit /b 1)
 
 echo.
-echo == 3/4  test suite (expect: 23 success) ==
+echo == 3/4  test suite (expect: 24 success) ==
 racket test/run-tests.rkt || (echo [X] TESTS FAILED & popd & exit /b 1)
 
 echo.
@@ -59,6 +59,6 @@ popd
 echo.
 echo =====================================================
 echo  ALL GREEN - racket port validates on this Windows box
-echo  Report: version OK, build OK, suite=23, raco exe runs.
+echo  Report: version OK, build OK, suite=24, raco exe runs.
 echo =====================================================
 endlocal

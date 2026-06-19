@@ -16,7 +16,20 @@
          "../tools/convert.rkt")    ; function-call->tool-block
 
 (provide chat-response->assistant-msg openai-llm http-post-json
-         stream-deltas->assistant-msg openai-llm-stream)
+         stream-deltas->assistant-msg openai-llm-stream
+         sanitize-wire-messages)   ; exported for tests (#1629 wire scrub)
+
+;; Strip Odysseus-only keys before sending messages to a provider (port of
+;; _sanitize_llm_messages' allowed-set projection). Internal annotations like the
+;; #1629 untrusted-context `metadata` must not hit the wire — many
+;; OpenAI-compatible servers reject unknown message fields. We project to the
+;; OpenAI-permitted keys; our spine already builds well-formed role sequences, so
+;; the provider-quirk repair in the Python helper isn't needed here.
+(define wire-allowed-keys '(role content name tool_call_id tool_calls function_call reasoning_content))
+(define (sanitize-wire-messages messages)
+  (for/list ([m (in-list messages)])
+    (for/fold ([h (hasheq)]) ([k (in-list wire-allowed-keys)])
+      (if (hash-has-key? m k) (hash-set h k (hash-ref m k)) h))))
 
 ;; canonical raw tool_call object echoed back to the model next round
 (define (raw-call id name args) (hasheq 'id id 'type "function"
@@ -124,7 +137,7 @@
     (append (list "Content-Type: application/json")
             (if api-key (list (string-append "Authorization: Bearer " api-key)) '())))
   (lambda (messages)
-    (define body (hasheq 'model model 'messages messages 'stream #t
+    (define body (hasheq 'model model 'messages (sanitize-wire-messages messages) 'stream #t
                          'temperature temperature 'tool_choice "auto" 'tools tools))
     (define-values (code in) (http-post-stream endpoint body headers))
     (unless (= code 200) (error 'openai-llm-stream "endpoint returned HTTP ~a" code))
@@ -143,7 +156,7 @@
     (append (list "Content-Type: application/json")
             (if api-key (list (string-append "Authorization: Bearer " api-key)) '())))
   (lambda (messages)
-    (define body (hasheq 'model model 'messages messages 'stream #f
+    (define body (hasheq 'model model 'messages (sanitize-wire-messages messages) 'stream #f
                          'temperature temperature 'tool_choice "auto" 'tools tools))
     (define-values (code resp) (http-post-json endpoint body headers))
     (unless (= code 200)

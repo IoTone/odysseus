@@ -922,6 +922,33 @@
       (check-equal? (agent-result-status r3) 'max-rounds)
       (check-equal? (agent-result-rounds r3) 3))
 
+    (test-case "agent loop — #1629 non-native tool results wrapped untrusted + wire scrub"
+      (define (exec b) "TOOLOUT")
+      (define seen (box '()))
+      (define (scripted xs) (let ([b (box xs)])
+                              (lambda (ms) (set-box! seen (cons ms (unbox seen)))
+                                (define m (car (unbox b))) (set-box! b (cdr (unbox b))) m)))
+      (define bash (function-call->tool-block "bash" "{\"command\":\"ls\"}"))
+      ;; NON-native path: tool-blocks present but NO raw tool_calls → prompted
+      ;; fallback (what models without native tool-calling use).
+      (run-agent '() #:exec exec
+                 #:llm (scripted (list (assistant-msg "" (list bash) '())
+                                       (assistant-msg "Done." '() '()))))
+      (define round2 (car (unbox seen)))
+      (define wrap (findf (lambda (m) (and (equal? (hash-ref m 'role #f) "user")
+                                           (hash-has-key? m 'metadata))) round2))
+      (check-true (and wrap #t) "non-native tool result fed back as a wrapped user turn")
+      ;; SECURITY (#1629): prompt-injection in tool output must be data, not
+      ;; instructions — metadata.trusted=#f + the untrusted-source envelope.
+      (check-equal? (hash-ref (hash-ref wrap 'metadata) 'trusted) #f)
+      (check-true (string-contains? (hash-ref wrap 'content) "UNTRUSTED SOURCE DATA"))
+      (check-true (string-contains? (hash-ref wrap 'content) "Source: tool execution results"))
+      (check-true (string-contains? (hash-ref wrap 'content) "TOOLOUT"))
+      ;; the internal metadata key must be scrubbed before it reaches a provider
+      (define wired (car (sanitize-wire-messages (list wrap))))
+      (check-false (hash-has-key? wired 'metadata))
+      (check-true (hash-has-key? wired 'content)))
+
     (test-case "agent adapter — OpenAI response parse + tool dispatch"
       ;; parse a response carrying a native tool_call
       (define resp (hasheq 'choices

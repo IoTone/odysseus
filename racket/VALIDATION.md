@@ -60,7 +60,7 @@ Expect: no errors, `build: 0`.
 ```bash
 racket test/run-tests.rkt
 ```
-Expect: `23 success(es) 0 failure(s) 0 error(s) 23 test(s) run`.
+Expect: `24 success(es) 0 failure(s) 0 error(s) 24 test(s) run`.
 
 ### 5. Smoke the CLIs and server
 ```bash
@@ -136,7 +136,7 @@ Expect: no errors.
 ```powershell
 racket test/run-tests.rkt
 ```
-Expect: `23 success(es) 0 failure(s) 0 error(s) 23 test(s) run`.
+Expect: `24 success(es) 0 failure(s) 0 error(s) 24 test(s) run`.
 
 ### 4b. End-to-end through the real agent loop  *(in racket\)*
 The fuller check — drives loop → tool dispatch → on-disk SQLite via a scripted
@@ -187,7 +187,7 @@ starts with a host header that identifies the machine):
 
 ```powershell
 cd racket
-# 1) quick smoke (compile + 23-test suite + standalone .exe)
+# 1) quick smoke (compile + 24-test suite + standalone .exe)
 cmd /c validate-windows.bat 2>&1 | Tee-Object -FilePath "$env:USERPROFILE\odyssey-validate.txt"
 
 # 2) full end-to-end (real agent loop -> tool dispatch -> on-disk SQLite via a
@@ -209,7 +209,7 @@ For each OS, the things that matter most:
 |---|---|---|
 | A | `racket --version` | `v9.2 [cs]` |
 | B | Build (step 3) | no errors |
-| C | Test suite (step 4) | `23 success(es) 0 failure(s)` |
+| C | Test suite (step 4) | `24 success(es) 0 failure(s)` |
 | D | End-to-end (step 4b / integration.ps1) | every `[ok]`, `INTEGRATION OK (Windows)` |
 | E | `raco exe` binary runs (step 6) | prints version, **no crash** |
 
