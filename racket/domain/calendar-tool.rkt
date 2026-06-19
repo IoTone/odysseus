@@ -18,7 +18,8 @@
          "util.rkt"
          "nl-datetime.rkt")
 
-(provide manage-calendar fallback-owner)
+(provide manage-calendar fallback-owner
+         reminder-minutes)   ; exported for tests (#4266 reminder parsing)
 
 (define (err msg) (hasheq 'error msg 'exit_code 1))
 (define (or-sql-null v) (if (eq? v #f) sql-null v))
@@ -88,9 +89,11 @@
      (define text (string-downcase (string-trim (format "~a" raw))))
      (cond
        [(member text '("none" "no" "off" "false")) #f]
-       [(regexp-match #px"(\\d+)\\s*(?:m|min|minute|minutes)\\b" text)
+       ;; #4266: longest-first alternation so plural abbreviations "mins"/"hrs"
+       ;; match — `mins?`/`hrs?` reach past the \b that "m|min" stranded before "s".
+       [(regexp-match #px"(\\d+)\\s*(?:minutes?|mins?|m)\\b" text)
         => (lambda (m) (max 0 (string->number (cadr m))))]
-       [(regexp-match #px"(\\d+)\\s*(?:h|hr|hour|hours)\\b" text)
+       [(regexp-match #px"(\\d+)\\s*(?:hours?|hrs?|h)\\b" text)
         => (lambda (m) (max 0 (* 60 (string->number (cadr m)))))]
        [(regexp-match? #px"^[0-9]+$" text) (max 0 (string->number text))]
        [else #f])]))
@@ -100,7 +103,7 @@
   (define desc (format "~a" (or (jget args 'description) "")))
   (cond
     [(eq? minutes-before #f) desc]
-    [(regexp-match? #px"(?i:^\\s*(?:remind(?:er)?|alarm)\\s*:?\\s*\\d+\\s*(?:m|min|minute|minutes|h|hr|hour|hours)\\b.*$)"
+    [(regexp-match? #px"(?i:^\\s*(?:remind(?:er)?|alarm)\\s*:?\\s*\\d+\\s*(?:minutes?|mins?|m|hours?|hrs?|h)\\b.*$)"
                     desc)
      ""]
     [else desc]))

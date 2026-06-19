@@ -784,6 +784,13 @@
       ;; list_calendars seeds the default Personal calendar
       (check-true (string-prefix? (hash-ref (run "{\"action\":\"list_calendars\"}") 'response)
                                   "Found 1 calendar(s):"))
+      ;; #4266: abbreviated reminder phrasings must parse (longest-first alt so
+      ;; "mins"/"hrs" reach past the \b). Direct unit checks on reminder-minutes.
+      (check-equal? (reminder-minutes (hasheq 'reminder_minutes "5 mins")) 5)
+      (check-equal? (reminder-minutes (hasheq 'reminder_minutes "2 hrs")) 120)
+      (check-equal? (reminder-minutes (hasheq 'reminder_minutes "1 hr")) 60)
+      (check-equal? (reminder-minutes (hasheq 'reminder_minutes "15 minutes")) 15)  ; long form still works
+      (check-equal? (reminder-minutes (hasheq 'reminder_minutes "30m")) 30)         ; bare unit still works
       ;; create with NL start, duration, tag, importance + reminder note
       (define r1 (run "{\"action\":\"create_event\",\"summary\":\"Dentist\",\"dtstart\":\"tomorrow 9am\",\"duration\":\"45m\",\"location\":\"Main St\",\"event_type\":\"health\",\"importance\":\"high\",\"reminder_minutes\":30}"))
       (check-true (string-contains? (hash-ref r1 'response) "Created event [Dentist](#event-"))
