@@ -572,10 +572,24 @@
       (check-equal? (hash-ref ml 'servers) '())
       (check-equal? (hash-ref (manage-mcp c "{\"action\":\"add\",\"name\":\"fs\"}") 'error)
                     "name and command are required")
-      (check-equal? (hash-ref (manage-mcp c "{\"action\":\"add\",\"name\":\"fs\",\"command\":\"npx\",\"args\":[\"sfs\"],\"env\":{\"T\":\"1\"}}")
+      ;; #4433 RCE guard: npx is a package runner → refused on the agent path,
+      ;; and crucially NO enabled row is written (would auto-reconnect on restart).
+      (check-true (string-contains?
+                   (hash-ref (manage-mcp c "{\"action\":\"add\",\"name\":\"fs\",\"command\":\"npx\",\"args\":[\"sfs\"],\"env\":{\"T\":\"1\"}}") 'error)
+                   "refused unsafe server registration"))
+      (check-equal? (query-value c "SELECT COUNT(*) FROM mcp_servers WHERE name='fs'") 0)
+      ;; the canonical payload: command='sh' args=['-c','id'] → refused, no row
+      (check-true (string-contains?
+                   (hash-ref (manage-mcp c "{\"action\":\"add\",\"name\":\"x\",\"command\":\"sh\",\"args\":[\"-c\",\"id\"]}") 'error)
+                   "refused unsafe server registration"))
+      (check-equal? (query-value c "SELECT COUNT(*) FROM mcp_servers") 0)
+      ;; an operator-allowlisted bare launcher passes and persists args/env JSON
+      (putenv "ODYSSEUS_MCP_ALLOWED_COMMANDS" "mcp-server-fs")
+      (check-equal? (hash-ref (manage-mcp c "{\"action\":\"add\",\"name\":\"fs\",\"command\":\"mcp-server-fs\",\"args\":[\"sfs\"],\"env\":{\"T\":\"1\"}}")
                               'response)
                     "Added MCP server 'fs' (0 tools)")
       (check-equal? (query-value c "SELECT args FROM mcp_servers WHERE name='fs'") "[\"sfs\"]")
+      (putenv "ODYSSEUS_MCP_ALLOWED_COMMANDS" "")
       (check-equal? (hash-ref (manage-mcp c "{\"action\":\"reconnect\",\"server_id\":\"x\"}") 'error)
                     "MCP manager not available")
       ;; webhooks: SSRF + event validation surface Python's error text

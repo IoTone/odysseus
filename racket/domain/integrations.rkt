@@ -25,7 +25,8 @@
          "util.rkt")
 
 (provide manage-endpoints manage-mcp manage-webhooks manage-tokens
-         validate-webhook-url validate-events)   ; exported for tests
+         validate-webhook-url validate-events
+         validate-mcp-command)   ; exported for tests
 
 (define (err msg) (hasheq 'error msg 'exit_code 1))
 (define (or-sql-null v) (if (eq? v #f) sql-null v))
@@ -89,6 +90,132 @@
 
 ;; ---- manage_mcp ----------------------------------------------------------------
 
+;; ---- manage_mcp RCE guard (port of _validate_mcp_command, #4433) -------------
+;; manage_mcp 'add' is model/prompt-injection-reachable: a payload smuggled into
+;; a skill description, memory entry, fetched page, or email body could register
+;; a stdio server running arbitrary code as the app UID (command='sh',
+;; args=['-c','...']). Validate BEFORE any DB write — a rejected registration
+;; leaves no enabled row (which would auto-reconnect on restart) and attempts no
+;; connection. Mirrors _validate_serve_cmd's intent, inverted for the model path:
+;; interpreters/runners are DENIED here even if an operator allowlists them.
+
+(define mcp-denied-commands
+  '("sh" "bash" "zsh" "fish" "dash" "ksh" "csh" "tcsh" "ash" "busybox"
+    "cmd" "command.com" "powershell" "pwsh"
+    "python" "pypy" "node" "nodejs" "deno" "bun" "ruby" "jruby"
+    "perl" "raku" "php" "lua" "luajit" "tclsh" "wish" "expect" "rscript"
+    "groovy" "scala" "elixir" "erl" "iex" "java" "javac" "jshell" "jbang"
+    "kotlin" "kotlinc" "dotnet" "mono" "swift" "osascript" "tsx" "ts-node"
+    "npx" "bunx" "uvx" "pipx" "npm" "pnpm" "yarn" "pip" "uv"
+    "gem" "cargo" "go" "bundle" "poetry" "conda" "mamba" "brew"
+    "apt" "apt-get" "yum" "dnf" "pacman" "apk"
+    "env" "xargs" "nohup" "setsid" "nice" "ionice" "time" "timeout"
+    "watch" "stdbuf" "unbuffer" "script" "ssh" "scp" "sshpass" "sudo"
+    "doas" "su" "make" "cmake" "docker" "podman" "kubectl" "find"
+    "awk" "gawk" "sed" "vi" "vim" "nvim" "emacs" "ed" "tee" "eval"))
+
+(define mcp-code-exec-short-flags '("-c" "-e" "-m"))
+(define mcp-code-exec-long-flags '("--eval" "--exec" "--print" "--module" "--command" "--require"))
+(define mcp-url-schemes '("http://" "https://" "ftp://" "ftps://" "file://" "data:" "jar:" "blob:"))
+(define mcp-shell-metachars (string->list ";|&$`><\n\r"))
+(define mcp-dangerous-env
+  '("LD_PRELOAD" "LD_LIBRARY_PATH" "LD_AUDIT" "DYLD_INSERT_LIBRARIES"
+    "DYLD_LIBRARY_PATH" "DYLD_FRAMEWORK_PATH" "PYTHONPATH" "PYTHONSTARTUP"
+    "PYTHONHOME" "PYTHONEXECUTABLE" "NODE_OPTIONS" "NODE_PATH" "BASH_ENV"
+    "ENV" "SHELLOPTS" "PERL5LIB" "PERL5OPT" "RUBYOPT" "RUBYLIB" "GEM_PATH"
+    "R_PROFILE" "R_HOME" "PATH" "IFS" "PROMPT_COMMAND"))
+
+;; ODYSSEUS_MCP_ALLOWED_COMMANDS (comma-separated), empty by default.
+(define (mcp-allowed-commands)
+  (filter (lambda (c) (not (string=? c "")))
+          (map (lambda (c) (string-downcase (string-trim c)))
+               (string-split (or (getenv "ODYSSEUS_MCP_ALLOWED_COMMANDS") "") "," #:trim? #f))))
+
+;; basename lowercased, with a trailing .exe/.cmd/.bat stripped (rsplit(".",1)[0]).
+(define (mcp-base command)
+  (define b (string-downcase command))
+  (if (or (string-suffix? b ".exe") (string-suffix? b ".cmd") (string-suffix? b ".bat"))
+      (let ([i (for/last ([c (in-string b)] [k (in-naturals)] #:when (char=? c #\.)) k)])
+        (if i (substring b 0 i) b))
+      b))
+
+;; Python truthiness incl. empty dict (Python `if env:` skips {}); jtruthy alone
+;; would treat an empty hasheq as true.
+(define (mcp-falsy? v)
+  (or (not (jtruthy v)) (and (hash? v) (zero? (hash-count v)))))
+
+(define (mcp-validate-args a0)
+  (cond
+    [(or (eq? a0 #f) (eq? a0 'null)) #f]        ; args.get default [] / None → skip
+    [else
+     (define a (if (string? a0)
+                   (with-handlers ([exn:fail? (lambda (_) 'bad)]) (string->jsexpr a0))
+                   a0))
+     (cond
+       [(eq? a 'bad) "args must be a JSON list"]
+       [(not (list? a)) "args must be a list"]
+       [else
+        (for/or ([item (in-list a)])
+          (cond
+            [(not (string? item)) "args must all be strings"]
+            [else
+             (define s (string-trim item))
+             (define low (string-downcase s))
+             (cond
+               [(for/or ([f (in-list mcp-code-exec-short-flags)])
+                  (or (string=? s f) (string-prefix? s f)))
+                (format "arg '~a' is a code-execution flag and is not allowed" item)]
+               [(for/or ([f (in-list mcp-code-exec-long-flags)])
+                  (or (string=? low f) (string-prefix? low (string-append f "="))))
+                (format "arg '~a' is a code-execution flag and is not allowed" item)]
+               [(for/or ([u (in-list mcp-url-schemes)]) (string-prefix? low u))
+                (format "arg '~a' is a remote URL and is not allowed" item)]
+               [(for/or ([ch (in-string item)]) (and (memv ch mcp-shell-metachars) #t))
+                (format "arg '~a' contains shell metacharacters" item)]
+               [else #f])]))])]))
+
+(define (mcp-validate-env e0)
+  (cond
+    [(mcp-falsy? e0) #f]                        ; Python `if env:` → empty skips
+    [else
+     (define e (if (string? e0)
+                   (with-handlers ([exn:fail? (lambda (_) 'bad)]) (string->jsexpr e0))
+                   e0))
+     (cond
+       [(eq? e 'bad) "env must be a JSON object"]
+       [(not (hash? e)) "env must be an object"]
+       [else
+        (for/or ([k (in-hash-keys e)])
+          (define ks (if (symbol? k) (symbol->string k) (format "~a" k)))
+          (and (member (string-upcase (string-trim ks)) mcp-dangerous-env)
+               (format "env var '~a' can inject code into the child process and is not allowed" ks)))])]))
+
+;; Returns an error string to reject, or #f to accept.
+(define (validate-mcp-command command cmd-args env)
+  (cond
+    [(or (not (string? command)) (string=? (string-trim command) ""))
+     "command must be a non-empty string"]
+    [else
+     (define c (string-trim command))
+     (cond
+       [(or (string-contains? c "/") (string-contains? c "\\"))
+        "command must be a bare executable name, not a path"]
+       [(for/or ([ch (in-string c)]) (and (memv ch mcp-shell-metachars) #t))
+        "command contains shell metacharacters"]
+       [else
+        (define base (mcp-base c))
+        (define canon (regexp-replace #px"[-_.]?\\d+(\\.\\d+)*$" base ""))
+        (cond
+          [(or (member base mcp-denied-commands) (member canon mcp-denied-commands))
+           (format (string-append "command '~a' is not allowed on the agent MCP path: "
+                                  "interpreters, runtimes, package runners, and shells can execute "
+                                  "arbitrary code. Register such a server via the admin route instead.") c)]
+          [(not (member base (mcp-allowed-commands)))
+           (format (string-append "command '~a' is not in the MCP allowlist. Add it to "
+                                  "ODYSSEUS_MCP_ALLOWED_COMMANDS if you trust it, or register the "
+                                  "server via the admin route.") c)]
+          [else (or (mcp-validate-args cmd-args) (mcp-validate-env env))])])]))
+
 (define (manage-mcp conn content #:owner [owner #f])
   (define args (parse-args content))
   (cond
@@ -105,6 +232,9 @@
           (cond
             [(or (not (jtruthy name)) (not (jtruthy command)))
              (err "name and command are required")]
+            [(validate-mcp-command command (jget args 'args) (jget args 'env))
+             => (lambda (verr)
+                  (err (string-append "manage_mcp: refused unsafe server registration: " verr)))]
             [else
              (define cmd-args (let ([a (jget args 'args)]) (if (list? a) a (or a '()))))
              (define env (let ([e (jget args 'env)]) (if (hash? e) e (or e (hasheq)))))
