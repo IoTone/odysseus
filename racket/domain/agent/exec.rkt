@@ -20,11 +20,26 @@
          json
          "../tools/convert.rkt")    ; tool-block-type / -content
 
-(provide make-exec default-handlers)
+(provide make-exec default-handlers
+         truncate-output read-clip)   ; exported for tests (output-cap fidelity)
 
-(define MAX-OUT 6000)
-(define (clip s) (if (> (string-length s) MAX-OUT)
-                     (string-append (substring s 0 MAX-OUT) "\n…[truncated]") s))
+;; Output caps — single source of truth in src/constants.py.
+(define MAX-OUTPUT-CHARS 10000)   ; bash/python/web_search/web_fetch/grep/glob/ls
+(define MAX-READ-CHARS   20000)   ; read_file / document preview
+
+;; Port of src/tool_execution.py _truncate: cap, then a total-length note.
+(define (truncate-output s [limit MAX-OUTPUT-CHARS])
+  (if (> (string-length s) limit)
+      (string-append (substring s 0 limit)
+                     (format "\n... (truncated, ~a chars total)" (string-length s)))
+      s))
+
+;; read_file caps at MAX_READ_CHARS with a DIFFERENT note (filesystem_tools.py).
+(define (read-clip s)
+  (if (> (string-length s) MAX-READ-CHARS)
+      (string-append (substring s 0 MAX-READ-CHARS)
+                     (format "\n... [truncated at ~a chars]" MAX-READ-CHARS))
+      s))
 (define (sj lines) (string-join lines "\n"))
 
 ;; ---- helpers ---------------------------------------------------------------
@@ -35,7 +50,7 @@
 (define (shell-capture command)
   (define out (open-output-string))
   (parameterize ([current-output-port out] [current-error-port out]) (system command))
-  (clip (get-output-string out)))
+  (truncate-output (get-output-string out)))
 
 ;; ---- handlers --------------------------------------------------------------
 (define default-handlers
@@ -62,8 +77,8 @@
            (define lim (let ([l (hash-ref a 'limit #f)]) (and (number? l) l)))
            (define chosen (let ([tail (if (> off (length lines)) '() (drop lines off))])
                             (if lim (take tail (min lim (length tail))) tail)))
-           (clip (sj chosen))])]
-       [(file-exists? content) (clip (file->string content))]
+           (read-clip (sj chosen))])]
+       [(file-exists? content) (read-clip (file->string content))]
        [else (format "error: no such file: ~a" content)]))
 
    "write_file"
@@ -111,7 +126,7 @@
      (define base (let ([p (hash-ref a 'path ".")]) (if (string? p) p ".")))
      (define matches (glob (build-path base pat)))
      (define newest (sort matches > #:key (lambda (p) (file-or-directory-modify-seconds p))))
-     (if (null? newest) "(no matches)" (clip (sj (map path->string newest)))))
+     (if (null? newest) "(no matches)" (truncate-output (sj (map path->string newest)))))
 
    "grep"
    (lambda (content)
@@ -133,14 +148,14 @@
                    #:when (regexp-match? rx ln))
          (format "~a:~a:~a" (path->string f) (add1 i) (string-trim ln))))
      (define limited (if (> (length hits) cap) (take hits cap) hits))
-     (if (null? limited) "(no matches)" (clip (sj limited))))
+     (if (null? limited) "(no matches)" (truncate-output (sj limited))))
 
    "web_fetch"
    (lambda (content)
      (define a (parse-json-content content))
      (define url (let ([u (hash-ref a 'url "")]) (if (string-prefix? u "http") u (string-append "https://" u))))
      (with-handlers ([exn:fail? (lambda (e) (format "error fetching ~a: ~a" url (exn-message e)))])
-       (clip (port->string (get-pure-port (string->url url) #:redirections 5)))))))
+       (truncate-output (port->string (get-pure-port (string->url url) #:redirections 5)))))))
 
 ;; index of first char (racket has no string-index)
 (define (string-index s ch)

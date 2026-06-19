@@ -1006,6 +1006,17 @@
       ;; a tool in tool-tags but with no exec handler → "not implemented"
       (check-true (regexp-match? #rx"not implemented"
                    (ex (function-call->tool-block "manage_memory" "{\"action\":\"list\"}"))))
+      ;; output-cap fidelity (src/constants.py): read_file caps at
+      ;; MAX_READ_CHARS=20000 with "[truncated at N chars]"; bash/python/web/grep/
+      ;; glob at MAX_OUTPUT_CHARS=10000 with "(truncated, N chars total)".
+      (define bigf (build-path dir "big.txt"))
+      (call-with-output-file bigf #:exists 'replace (lambda (o) (display (make-string 20500 #\z) o)))
+      (define rf (ex (function-call->tool-block "read_file" (jsexpr->string (hasheq 'path (path-of bigf))))))
+      (check-equal? (string-length rf) 20031)                                ; 20000 + message
+      (check-true (string-suffix? rf "\n... [truncated at 20000 chars]"))
+      (check-equal? (string-length (truncate-output (make-string 10500 #\x))) 10035)  ; 10000 + msg
+      (check-true (string-suffix? (truncate-output (make-string 10500 #\x))
+                                  "\n... (truncated, 10500 chars total)"))
       (delete-directory/files dir))
 
     (test-case "system-prompt assembly (enabled tools only)"
