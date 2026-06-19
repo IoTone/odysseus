@@ -325,6 +325,12 @@
       (define e2 (cadr may))
       (check-equal? (hash-ref e2 'dtstart) "2026-05-15T08:00:00Z")         ; is_utc -> Z suffix
       (check-equal? (hash-ref e2 'calendar_name) "Personal")              ; join
+      ;; #2065: an in-progress event (started before the window, still running)
+      ;; must appear — overlap (dtstart<end AND dtend>start), not dtstart>=start.
+      ;; e1 runs 12:00-13:00; a window opening at 12:30 starts mid-event.
+      (define mid (run-json (cli "odysseus-calendar.rkt")
+                            '("list" "--start" "2026-05-10T12:30:00" "--end" "2026-05-12") #:env env-db))
+      (check-equal? (map (lambda (e) (hash-ref e 'uid)) mid) '("e1"))     ; in-progress kept
       (define created (run-json (cli "odysseus-calendar.rkt")
                                 '("create" "--title" "Standup" "--start" "2026-05-20"
                                   "--calendar" "Work") #:env env-db))

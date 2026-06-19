@@ -84,8 +84,13 @@
                         (unless id (fail (format "no calendar named ~s" calname)))
                         id]
                [else #f]))
+       ;; #2065: OVERLAP semantics (dtstart < end AND dtend > start), matching
+       ;; the web route + recurring-expansion contract — keeps multi-day /
+       ;; in-progress events that began before `start` but are still running in
+       ;; the window. (Was dtstart >= start AND dtstart < end, which dropped
+       ;; them.) Placeholders stay start-then-end: dtend > start, dtstart < end.
        (define sql (string-append "SELECT " event-cols " " event-from
-                                  " WHERE e.dtstart >= ? AND e.dtstart < ?"
+                                  " WHERE e.dtend > ? AND e.dtstart < ?"
                                   (if cal-filter " AND e.calendar_id = ?" "")
                                   " ORDER BY e.dtstart ASC LIMIT ?"))
        (define params (append (list (secs->sqlite start-secs) (secs->sqlite end-secs))
