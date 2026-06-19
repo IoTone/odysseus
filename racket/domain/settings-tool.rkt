@@ -24,7 +24,7 @@
 ;; ---- DEFAULT_SETTINGS (src/settings.py) — keys drive validation + coercion --
 (define default-settings
   (hasheq
-   'image_gen_enabled #t
+   'image_gen_enabled #f
    'image_model ""
    'image_quality "medium"
    'vision_model ""
@@ -79,6 +79,7 @@
    'skill_max_injected 3
    'reminder_channel "browser"
    'reminder_llm_synthesis #f
+   'reminder_llm_persona ""
    'reminder_ntfy_topic "Reminders"
    'reminder_email_to ""
    'reminder_webhook_integration_id ""
@@ -91,6 +92,7 @@
     "at the door, locked out, or unable to get in is urgent now. "
     "Newsletters, marketing, automated digests, and FYI-only updates are "
     "NOT urgent.")
+   'agent_email_confirm #t
    'keybinds (hasheq 'search "ctrl+k" 'toggle_sidebar "ctrl+b" 'new_session "ctrl+alt+n"
                      'star_session "ctrl+alt+s" 'delete_session "ctrl+alt+d"
                      'admin_panel "ctrl+shift+u" 'cancel "escape")))
