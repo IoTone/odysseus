@@ -822,6 +822,11 @@
       (check-true (string-prefix? (hash-ref l1 'response)
                                   "Found 1 event(s) between 2026-06-10 and 2026-06-24:"))
       (check-true (string-contains? (hash-ref l1 'response) "#health !high @ Main St (Personal)"))
+      ;; #5469099: a same-day query (start==end) expands to one day and returns
+      ;; that day's events (without the clamp, dtstart<end AND dtend>start at a
+      ;; zero-width window matches nothing).
+      (define lsd (run "{\"action\":\"list_events\",\"start\":\"2026-06-11\",\"end\":\"2026-06-11\"}"))
+      (check-true (string-contains? (hash-ref lsd 'response) "Dentist"))
       ;; update + compound-uid handling + delete
       (define uid (hash-ref r1 'uid))
       (check-equal? (hash-ref (run (jsexpr->string (hasheq 'action "update_event"

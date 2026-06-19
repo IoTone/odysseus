@@ -225,11 +225,14 @@
 (define (cal-list-events conn args owner now-local now-utc)
   (define start-raw (first-nonempty args 'start 'start_date 'range_start 'from 'dtstart 'since))
   (define end-raw (first-nonempty args 'end 'end_date 'range_end 'to 'dtend 'until))
-  (define-values (start-dt end-dt parse-err)
+  (define-values (start-dt end-dt-raw parse-err)
     (with-handlers ([exn:fail? (lambda (e) (values #f #f (strip-who (exn-message e))))])
       (define s (if start-raw (parse-dt (format "~a" start-raw) #:now now-local)
                     (midnight-utc now-utc)))
       (values s (if end-raw (parse-dt (format "~a" end-raw) #:now now-local) (+ s (* 14 DAY))) #f)))
+  ;; #5469099: a zero-width/inverted window expands to one day, so a same-day
+  ;; (start==end) query returns that whole day instead of nothing.
+  (define end-dt (and (not parse-err) (if (<= end-dt-raw start-dt) (+ start-dt DAY) end-dt-raw)))
   (cond
     [parse-err (err (format "Invalid date format: ~a" parse-err))]
     [else
