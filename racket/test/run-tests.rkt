@@ -468,11 +468,19 @@
       (define a2 (run "{\"action\":\"remind\",\"title\":\"Reminder: call  dentist\",\"due_date\":\"2026-06-10T09:00:00\"}"))
       (check-equal? (hash-ref a2 'duplicate #f) #t)
       (check-equal? (hash-ref a2 'note_id) (hash-ref a1 'note_id))
-      ;; owner scoping: foreign notes are invisible to update/delete
+      ;; owner scoping (#f2a79aa): the lookup query is owner-filtered, so another
+      ;; account's note falls into the not-found branch ("Note '<id>' not found").
       (define rb (run "{\"action\":\"add\",\"title\":\"Bobs\"}" #:owner "bob"))
       (define att (run (jsexpr->string (hasheq 'action "delete" 'id (hash-ref rb 'note_id)))
                        #:owner "alice"))
-      (check-equal? (hash-ref att 'error) "Note not found")
+      (check-equal? (hash-ref att 'error) (format "Note '~a' not found" (hash-ref rb 'note_id)))
+      ;; SECURITY (#f2a79aa): legacy null-owner rows are NOT shared with an
+      ;; authenticated owner, but ARE visible in single-user (no-owner) mode.
+      (query-exec c "INSERT INTO notes(id,owner,title,items,pinned,archived) VALUES('nullnote1',NULL,'Legacy',NULL,0,0)")
+      (check-equal? (hash-ref (run (jsexpr->string (hasheq 'action "delete" 'id "nullnote1")) #:owner "alice") 'error)
+                    "Note 'nullnote1' not found")
+      (check-true (string-prefix? (hash-ref (run (jsexpr->string (hasheq 'action "delete" 'id "nullnote1"))) 'response)
+                                  "Deleted note"))
       ;; errors: bad JSON, unknown action, missing note — and the text renderer
       (check-equal? (hash-ref (run "{nope") 'error) "Invalid JSON arguments")
       (check-true (string-prefix? (hash-ref (run "{\"action\":\"zap\"}") 'error) "Unknown action: zap"))

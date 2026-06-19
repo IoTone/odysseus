@@ -139,21 +139,35 @@
   (hash "create" "add" "new" "add" "save" "add" "remind" "add"
         "remove" "delete" "remove_item" "toggle_item"))
 
+;; _note_visible_to_owner (#f2a79aa): empty owner = single-user/auth-disabled
+;; mode → visible; a real owner must match EXACTLY. Legacy null/empty-owner rows
+;; are NOT shared with an authenticated account.
+(define (note-visible-to-owner? note-owner owner)
+  (or (not (jtruthy owner))
+      (equal? (if (sql-null? note-owner) #f note-owner) owner)))
+
 ;; find a note by id prefix → vector #(id owner title items) or #f.
-;; Returns 'forbidden when it exists but belongs to someone else (the Python
-;; returns the same "Note not found" error; callers map both to that).
+;; Port of _note_by_prefix + _note_visible_to_owner (#f2a79aa): the lookup query
+;; itself is owner-scoped when an owner is set (so a prefix collision with
+;; another account's note can't 404 the owner's own note, and null-owner rows
+;; aren't returned). Returns 'forbidden if a row is found but not visible — the
+;; same "Note not found" the callers map it to (unreachable once the query is
+;; owner-scoped, kept as defense-in-depth, mirroring Python's two-step check).
 (define (find-note conn note-id owner)
   (cond
     [(not (jtruthy note-id)) #f]
     [else
-     (define r (query-maybe-row conn
-                 "SELECT id, owner, title, items FROM notes WHERE id LIKE ? LIMIT 1"
-                 (string-append note-id "%")))
+     (define r
+       (if (jtruthy owner)
+           (query-maybe-row conn
+             "SELECT id, owner, title, items FROM notes WHERE id LIKE ? AND owner = ? LIMIT 1"
+             (string-append note-id "%") owner)
+           (query-maybe-row conn
+             "SELECT id, owner, title, items FROM notes WHERE id LIKE ? LIMIT 1"
+             (string-append note-id "%"))))
      (cond [(not r) #f]
-           [(and owner (jtruthy (let ([o (vector-ref r 1)]) (if (sql-null? o) #f o)))
-                 (not (equal? (vector-ref r 1) owner)))
-            'forbidden]
-           [else r])]))
+           [(note-visible-to-owner? (vector-ref r 1) owner) r]
+           [else 'forbidden])]))
 
 (define (err msg) (hasheq 'error msg 'exit_code 1))
 
