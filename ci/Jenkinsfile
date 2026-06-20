@@ -1,41 +1,104 @@
-// ci/Jenkinsfile — cross-platform CI for the Racket port of Odysseus.
+// ci/Jenkinsfile — CI for the Racket port of Odysseus.
 //
-// Design goals (see ../PORTING_PLAN.md):
-//   - Build + test the port on Linux, macOS, and Windows from one pipeline.
-//   - Linux is wired up now; macOS/Windows stages are written and ready but
-//     gated OFF by default until labeled agents exist ("verify later").
-//   - Every platform: install the *right* Racket, byte-compile, run the
-//     portable Racket test suite, and build standalone binaries (raco exe).
-//   - Linux additionally runs the Python-vs-Racket fidelity diffs (needs the
-//     app venv, which only the Linux agent provides).
+// Reality (2026-06): the available build agent is Nix-capable, so the **Nix
+// stage is the primary, default-on gate** — it covers the whole port on one
+// agent. The macOS / Windows / non-Nix-Linux stages are written and ready but
+// gated OFF until labeled agents exist (flip the RUN_* params).
 //
-// Toolchain policy mirrors install-racket.sh: official Racket on Linux/Windows,
-// Homebrew on macOS.
+// What the Nix stage proves, on one agent:
+//   1. `nix flake check` — reproducible build of every CLI + the web server,
+//      the rackunit suite (package checkPhase), AND the §4d `integration`
+//      check (compile + suite + mock-LLM end-to-end, fully hermetic; the
+//      live-ollama layer auto-skips with nothing on :11434). flake.lock pins
+//      nixpkgs, so this is byte-for-byte reproducible.
+//   2. fidelity (Python parity) — byte-identity vs the LIVE Python, run
+//      OUTSIDE the flake sandbox (which has neither ci/ nor the Python tree)
+//      against the full checkout, under the devShell's racket+python3:
+//        • schema DSL vs FUNCTION_TOOL_SCHEMAS  — HARD gate (python3 stdlib
+//          only; no venv, no wheels — robust on NixOS).
+//        • native-call→ToolBlock converter + per-CLI fidelity — BEST-EFFORT:
+//          they need the app venv, and pip-installed manylinux wheels can fail
+//          to import on a NixOS agent. A real *mismatch* fails the build; a
+//          venv that won't import is skipped with a warning (the flake check +
+//          schema fidelity still gate). Run them hard on a non-Nix Linux lane
+//          once such an agent exists.
+//
+// Toolchain policy for the non-Nix lanes mirrors install-racket.sh: official
+// Racket on Linux/Windows, Homebrew on macOS.
 
 pipeline {
   agent none
 
   parameters {
-    booleanParam(name: 'RUN_LINUX',   defaultValue: true,  description: 'Build/test on Linux (Debian/Ubuntu)')
-    booleanParam(name: 'RUN_MACOS',   defaultValue: false, description: 'Build/test on macOS (needs an agent labeled "macos")')
-    booleanParam(name: 'RUN_WINDOWS', defaultValue: false, description: 'Build/test on Windows (needs an agent labeled "windows")')
-    booleanParam(name: 'RUN_NIX',     defaultValue: false, description: 'Exercise the flake via nix flake check (needs an agent labeled "nix")')
+    booleanParam(name: 'RUN_NIX',     defaultValue: true,  description: 'Primary gate: nix flake check + Python-parity fidelity (agent labeled "nix")')
+    booleanParam(name: 'RUN_LINUX',   defaultValue: false, description: 'Non-Nix Linux path (official Racket via install-racket.sh; agent labeled "linux")')
+    booleanParam(name: 'RUN_MACOS',   defaultValue: false, description: 'Build/test on macOS (agent labeled "macos")')
+    booleanParam(name: 'RUN_WINDOWS', defaultValue: false, description: 'Build/test on Windows (agent labeled "windows")')
   }
 
   environment {
     RACKET_VERSION = '9.2'
+    // Enable flakes for every `nix` invocation without a per-command flag.
+    NIX_CONFIG = 'extra-experimental-features = nix-command flakes'
   }
 
   options {
     timestamps()
-    timeout(time: 40, unit: 'MINUTES')
+    timeout(time: 60, unit: 'MINUTES')   // cold nixpkgs/devShell + pip on first run
   }
 
   stages {
-    stage('Build & Test (matrix)') {
+
+    // ======================================================= Nix (primary) ===
+    stage('Nix') {
+      when { expression { return params.RUN_NIX } }
+      agent { label 'nix' }
+      stages {
+
+        stage('flake check') {
+          steps {
+            // Builds the current arch + evaluates the others; runs the suite
+            // (checkPhase) and the §4d integration check (compile + suite +
+            // mock end-to-end, hermetic).
+            sh 'nix flake check -L'
+          }
+        }
+
+        stage('fidelity (Python parity)') {
+          steps {
+            // The flake sandbox is src=./racket only, so the Python-vs-Racket
+            // diffs run here, against the full checkout, under the devShell.
+            sh '''
+              nix develop --command bash -euc '
+                export PLTCOLLECTS="$PWD/racket/pkgs:"
+
+                # (1) HARD: tool-schema byte-identity — python3 stdlib only.
+                bash ci/fidelity-tools.sh
+
+                # (2) BEST-EFFORT: converter + per-CLI fidelity need the app
+                # venv. pip wheels can fail to import on NixOS, so gate on a
+                # successful import; a real mismatch below still fails the build.
+                if python3 -m venv .venv \
+                   && . .venv/bin/activate \
+                   && pip install -q -r requirements.txt \
+                   && python3 -c "import src.agent_tools" 2>/dev/null; then
+                  bash ci/fidelity-convert.sh
+                  bash ci/fidelity.sh
+                else
+                  echo "[warn] app venv unavailable on this agent (NixOS pip wheels) — converter/CLI fidelity skipped; flake check + schema fidelity still gate."
+                fi
+              '
+            '''
+          }
+        }
+      }
+    }
+
+    // ============================================= Cross-platform (gated) ====
+    stage('Cross-platform') {
       parallel {
 
-        // ---------------------------------------------------------------- Linux
+        // -------------------------------------------------- Linux (non-Nix)
         stage('Linux') {
           when { expression { return params.RUN_LINUX } }
           agent { label 'linux' }
@@ -45,8 +108,7 @@ pipeline {
               set -eu
               # Official Racket, in-place under the workspace (cached across builds).
               if [ ! -x "$RACKET_PREFIX/bin/racket" ]; then
-                RACKET_PREFIX="$RACKET_PREFIX" RACKET_VERSION="$RACKET_VERSION" \
-                  racket/install-racket.sh
+                RACKET_PREFIX="$RACKET_PREFIX" RACKET_VERSION="$RACKET_VERSION" racket/install-racket.sh
               fi
               export PATH="$RACKET_PREFIX/bin:$PATH"
               racket --version
@@ -55,31 +117,23 @@ pipeline {
               raco pkg install --auto --batch --skip-installed web-server-lib db-lib || true
               raco pkg install --link --batch --skip-installed \
                 racket/pkgs/cli-kit racket/pkgs/db-kit racket/pkgs/web-kit || true
-              # Byte-compile (explicit entry points — cross-shell safe).
-              ( cd racket && raco make config.rkt cli/odysseus-logs.rkt cli/odysseus-preset.rkt cli/odysseus-signature.rkt cli/odysseus-notes.rkt cli/odysseus-sessions.rkt cli/odysseus-tasks.rkt cli/odysseus-research.rkt cli/odysseus-mcp.rkt cli/odysseus-calendar.rkt server/main.rkt server/proxy.rkt test/run-tests.rkt test/seed-db.rkt )
 
-              # Portable behavior suite.
-              ( cd racket && racket test/run-tests.rkt )
-
-              # Python-vs-Racket fidelity (Linux only — needs the app venv).
+              # App venv for the Python-vs-Racket diffs (a normal Linux venv —
+              # no NixOS wheel caveat here, so these are HARD on this lane).
               python3 -m venv .venv
               . .venv/bin/activate
               pip install -q -r requirements.txt
-              chmod +x ci/fidelity.sh && ci/fidelity.sh
-              # native-call→ToolBlock converter vs the live Python (needs venv).
-              chmod +x ci/fidelity-convert.sh && ci/fidelity-convert.sh
+              bash ci/fidelity.sh              # per-CLI fidelity (needs venv)
               deactivate
-              # Tool-schema DSL vs FUNCTION_TOOL_SCHEMAS (no venv — ast.literal_eval).
-              chmod +x ci/fidelity-tools.sh && ci/fidelity-tools.sh
 
-              # Mega end-to-end: real agent loop → tool dispatch → on-disk DB,
-              # driven by a scripted mock LLM (no model). Re-runs the cheap
-              # layers above too; the live-ollama stage auto-skips (no :11434).
-              chmod +x racket/test/integration.sh && racket/test/integration.sh
+              # Mega end-to-end: compile + suite + schema/converter fidelity
+              # (finds .venv itself) + mock LLM dispatch → on-disk DB. live
+              # ollama auto-skips.
+              bash racket/test/integration.sh
 
-              # Standalone binaries (the packaging deliverable).
+              # Standalone binaries (incl. the agent CLI).
               mkdir -p racket/dist
-              for t in odysseus-logs odysseus-preset odysseus-signature odysseus-notes odysseus-sessions odysseus-tasks odysseus-research odysseus-mcp odysseus-calendar; do
+              for t in odysseus-logs odysseus-preset odysseus-signature odysseus-notes odysseus-sessions odysseus-tasks odysseus-research odysseus-mcp odysseus-calendar odysseus-agent; do
                 raco exe -o "racket/dist/$t" "racket/cli/$t.rkt"
               done
             '''
@@ -87,23 +141,22 @@ pipeline {
           }
         }
 
-        // ---------------------------------------------------------------- macOS
+        // ------------------------------------------------------------ macOS
         stage('macOS') {
           when { expression { return params.RUN_MACOS } }
           agent { label 'macos' }
           steps {
             sh '''
               set -eu
-              # macOS: Homebrew is the tried-and-true path.
               command -v racket >/dev/null 2>&1 || brew install minimal-racket
               racket --version
               raco pkg install --auto --batch --skip-installed web-server-lib db-lib || true
               raco pkg install --link --batch --skip-installed \
                 racket/pkgs/cli-kit racket/pkgs/db-kit racket/pkgs/web-kit || true
-              ( cd racket && raco make config.rkt cli/odysseus-logs.rkt cli/odysseus-preset.rkt cli/odysseus-signature.rkt cli/odysseus-notes.rkt cli/odysseus-sessions.rkt cli/odysseus-tasks.rkt cli/odysseus-research.rkt cli/odysseus-mcp.rkt cli/odysseus-calendar.rkt server/main.rkt server/proxy.rkt test/run-tests.rkt test/seed-db.rkt )
+              ( cd racket && raco make config.rkt cli/odysseus-logs.rkt cli/odysseus-preset.rkt cli/odysseus-signature.rkt cli/odysseus-notes.rkt cli/odysseus-sessions.rkt cli/odysseus-tasks.rkt cli/odysseus-research.rkt cli/odysseus-mcp.rkt cli/odysseus-calendar.rkt cli/odysseus-agent.rkt server/main.rkt server/proxy.rkt test/run-tests.rkt test/seed-db.rkt )
               ( cd racket && racket test/run-tests.rkt )
               mkdir -p racket/dist
-              for t in odysseus-logs odysseus-preset odysseus-signature odysseus-notes odysseus-sessions odysseus-tasks odysseus-research odysseus-mcp odysseus-calendar; do
+              for t in odysseus-logs odysseus-preset odysseus-signature odysseus-notes odysseus-sessions odysseus-tasks odysseus-research odysseus-mcp odysseus-calendar odysseus-agent; do
                 raco exe -o "racket/dist/$t" "racket/cli/$t.rkt"
               done
             '''
@@ -111,12 +164,11 @@ pipeline {
           }
         }
 
-        // -------------------------------------------------------------- Windows
+        // ---------------------------------------------------------- Windows
         stage('Windows') {
           when { expression { return params.RUN_WINDOWS } }
           agent { label 'windows' }
           steps {
-            // PowerShell: install official Racket if absent, then build/test.
             powershell '''
               $ErrorActionPreference = "Stop"
               if (-not (Get-Command racket -ErrorAction SilentlyContinue)) {
@@ -124,21 +176,18 @@ pipeline {
                 $url = "https://download.racket-lang.org/installers/$ver/racket-$ver-x86_64-win32-cs.exe"
                 $exe = "$env:TEMP\\racket-install.exe"
                 Invoke-WebRequest -Uri $url -OutFile $exe
-                # /S = silent; /D = install dir (must be last, unquoted, NSIS convention)
                 Start-Process -Wait -FilePath $exe -ArgumentList "/S","/D=C:\\racket"
                 $env:Path = "C:\\racket;" + $env:Path
               }
               racket --version
-              # Full Racket bundles these; install only if missing (avoids the
-              # "installed in a wider scope" error on full distributions).
               racket -e "(require web-server/servlet-env db rackunit)" 2>$null
               if ($LASTEXITCODE -ne 0) { raco pkg install --auto --batch web-server-lib db-lib }
-              raco pkg install --link --batch --skip-installed racket\pkgs\cli-kit racket\pkgs\db-kit racket\pkgs\web-kit
+              raco pkg install --link --batch --skip-installed racket\\pkgs\\cli-kit racket\\pkgs\\db-kit racket\\pkgs\\web-kit
               Push-Location racket
-              raco make config.rkt cli/odysseus-logs.rkt cli/odysseus-preset.rkt cli/odysseus-signature.rkt cli/odysseus-notes.rkt cli/odysseus-sessions.rkt cli/odysseus-tasks.rkt cli/odysseus-research.rkt cli/odysseus-mcp.rkt cli/odysseus-calendar.rkt server/main.rkt server/proxy.rkt test/run-tests.rkt test/seed-db.rkt
+              raco make config.rkt cli/odysseus-logs.rkt cli/odysseus-preset.rkt cli/odysseus-signature.rkt cli/odysseus-notes.rkt cli/odysseus-sessions.rkt cli/odysseus-tasks.rkt cli/odysseus-research.rkt cli/odysseus-mcp.rkt cli/odysseus-calendar.rkt cli/odysseus-agent.rkt server/main.rkt server/proxy.rkt test/run-tests.rkt test/seed-db.rkt
               racket test/run-tests.rkt
               New-Item -ItemType Directory -Force -Path dist | Out-Null
-              foreach ($t in @("odysseus-logs","odysseus-preset","odysseus-signature","odysseus-notes","odysseus-sessions","odysseus-tasks","odysseus-research","odysseus-mcp","odysseus-calendar")) {
+              foreach ($t in @("odysseus-logs","odysseus-preset","odysseus-signature","odysseus-notes","odysseus-sessions","odysseus-tasks","odysseus-research","odysseus-mcp","odysseus-calendar","odysseus-agent")) {
                 raco exe -o "dist/$t.exe" "cli/$t.rkt"
               }
               Pop-Location
@@ -146,26 +195,6 @@ pipeline {
             archiveArtifacts artifacts: 'racket/dist/*', fingerprint: true, allowEmptyArchive: true
           }
         }
-
-        // ------------------------------------------------------------------ Nix
-        stage('Nix') {
-          when { expression { return params.RUN_NIX } }
-          agent { label 'nix' }
-          steps {
-            // `nix flake check` builds packages.odysseus (its checkPhase runs the
-            // Racket test suite) + validates devShells/apps. The flake pins
-            // nixpkgs via flake.lock, so this is reproducible.
-            sh 'nix --extra-experimental-features "nix-command flakes" flake check -L'
-          }
-        }
-      }
-    }
-  }
-
-  post {
-    always {
-      node('linux') {
-        echo 'CI complete. Linux is wired up; flip RUN_MACOS / RUN_WINDOWS once agents exist.'
       }
     }
   }
