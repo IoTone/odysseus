@@ -348,6 +348,38 @@
 
 (define (err msg) (hasheq 'error msg 'exit_code 1))
 
+;; Port of routes/prefs_routes._load_for_user over <data-dir>/user_prefs.json.
+;; Missing/bad file → {} (matches _load's FileNotFoundError/JSONDecodeError →
+;; {}). _users[owner] when present; legacy flat dict otherwise; owner=#f
+;; (auth-disabled) → first user's prefs for backward compat. data-dir is the
+;; parent of the manager's skills root.
+(define (load-prefs-for-user m owner)
+  (define data-dir (let-values ([(base name dir?) (split-path (skman-root m))]) base))
+  (define all
+    (with-handlers ([exn:fail? (lambda (_) (hasheq))])
+      (let ([v (string->jsexpr (file->string (build-path data-dir "user_prefs.json")))])
+        (if (hash? v) v (hasheq)))))
+  (cond
+    [(hash-has-key? all '_users)
+     (define users (hash-ref all '_users))
+     (cond
+       [(not (hash? users)) (hasheq)]
+       [(not (jtruthy owner))
+        (if (positive? (hash-count users))
+            (let ([v (hash-ref users (car (hash-keys users)))]) (if (hash? v) v (hasheq)))
+            (hasheq))]
+       [else (let ([v (hash-ref users (string->symbol owner) #f)]) (if (hash? v) v (hasheq)))])]
+    [else all]))
+
+;; #fa8c93e: explicit status wins; otherwise publish immediately iff the owner's
+;; auto_approve_skills pref is on (default on) — else draft. ("" status, like
+;; Python's `if not _status_arg`, counts as unpinned → goes through the gate.)
+(define (skill-add-status m owner status-arg)
+  (cond
+    [(jtruthy status-arg) status-arg]
+    [(jtruthy (hash-ref (load-prefs-for-user m owner) 'auto_approve_skills #t)) "published"]
+    [else "draft"]))
+
 (define (manage-skills data-dir content #:owner [owner #f])
   (define args (with-handlers ([exn:fail? (lambda (_) 'bad)])
                  (let ([v (string->jsexpr content)]) (if (hash? v) v (hasheq)))))
@@ -451,7 +483,7 @@
         #:steps (or (jget args 'steps) '())
         #:pitfalls (or (jget args 'pitfalls) '())
         #:verification (or (jget args 'verification) '())
-        #:status (or (jget args 'status) "draft")
+        #:status (skill-add-status m owner (jget args 'status))
         #:version (or (jget args 'version) "1.0.0")
         #:confidence (to-float (jget args 'confidence) 0.8)   ; Python float() parses "0.95"
         #:source (or (jget args 'source) "learned")

@@ -721,10 +721,15 @@
       (define (run s #:owner [o #f]) (manage-skills dir s #:owner o))
       (check-equal? (hash-ref (run "{\"action\":\"list\"}") 'results)
                     "No skills yet. Create one with action='add'.")
-      (define a1 (run "{\"action\":\"add\",\"name\":\"Open PR From Branch\",\"description\":\"Open a GitHub PR\",\"category\":\"dev\",\"when_to_use\":\"User asks to open a PR\",\"procedure\":[\"git push -u origin HEAD\",\"gh pr create --fill\"]}"))
+      (define a1 (run "{\"action\":\"add\",\"name\":\"Open PR From Branch\",\"status\":\"draft\",\"description\":\"Open a GitHub PR\",\"category\":\"dev\",\"when_to_use\":\"User asks to open a PR\",\"procedure\":[\"git push -u origin HEAD\",\"gh pr create --fill\"]}"))
       (check-true (string-prefix? (hash-ref a1 'results) "Created skill `open-pr-from-branch`"))
-      (check-true (string-contains? (hash-ref a1 'results) "DRAFT"))   ; draft verify hint
+      (check-true (string-contains? (hash-ref a1 'results) "DRAFT"))   ; explicit draft → verify hint
       (check-true (file-exists? (build-path dir "skills" "dev" "open-pr-from-branch" "SKILL.md")))
+      ;; #fa8c93e: with no explicit status and auto_approve_skills defaulting on
+      ;; (no user_prefs.json here), an add publishes immediately — no DRAFT hint.
+      (define apub (run "{\"action\":\"add\",\"name\":\"Auto Pub\",\"description\":\"d\",\"when_to_use\":\"w\",\"procedure\":[\"step\"]}"))
+      (check-false (string-contains? (hash-ref apub 'results) "DRAFT"))
+      (run "{\"action\":\"delete\",\"name\":\"auto-pub\"}")   ; tidy so it doesn't affect later list/search
       ;; near-duplicate add dedupes instead of creating
       (check-true (string-prefix?
                    (hash-ref (run "{\"action\":\"add\",\"name\":\"open pr from branch\",\"description\":\"Open a GitHub PR now\",\"when_to_use\":\"User asks to open a PR\",\"procedure\":[\"git push -u origin HEAD\",\"gh pr create --fill\"]}")
