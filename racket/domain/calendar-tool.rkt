@@ -162,6 +162,47 @@
           due-date (now-stamp) (now-stamp))
         (values id #f)])]))
 
+;; #d9a4b99: normalize a batch event's start/end ({dateTime:…} object or flat
+;; string) into dtstart/dtend, mirroring Python's ev.pop + val.get("dateTime",val).
+(define (normalize-batch-event ev)
+  (for/fold ([e ev]) ([pr (in-list '((start . dtstart) (end . dtend)))])
+    (define field (car pr)) (define target (cdr pr))
+    (define val (jget e field))
+    (define e2 (if (hash-has-key? e field) (hash-remove e field) e))
+    (if (and (jtruthy val) (not (hash-has-key? e2 target)))
+        (hash-set e2 target (if (hash? val) (hash-ref val 'dateTime val) val))
+        e2)))
+
+;; #d9a4b99: some models emit {"events":[…]} instead of individual create_event
+;; calls — create each, then aggregate successes/failures.
+(define (cal-batch-events conn events owner now-local now-utc)
+  (define results
+    (for/list ([ev (in-list events)] #:when (hash? ev))
+      (define e (normalize-batch-event ev))
+      (define e2 (if (jtruthy (jget e 'action)) e (hash-set e 'action "create_event")))
+      (manage-calendar conn (jsexpr->string e2) #:owner owner
+                       #:now-local now-local #:now-utc now-utc)))
+  (define created (filter (lambda (r) (and (equal? (hash-ref r 'exit_code #f) 0)
+                                           (not (hash-ref r 'error #f)))) results))
+  (define failed (filter (lambda (r) (hash-ref r 'error #f)) results))
+  (cond
+    [(null? results) (err "No events to create")]
+    [else
+     (define parts
+       (append
+        (if (pair? created)
+            (list (string-append (format "Created ~a event(s):\n" (length created))
+                                 (string-join (map (lambda (r) (hash-ref r 'response "")) created) "\n")))
+            '())
+        (if (pair? failed)
+            (list (format "Failed to create ~a event(s). First error: ~a"
+                          (length failed) (hash-ref (car failed) 'error "Unknown error")))
+            '())))
+     (hasheq 'response (string-join parts "\n\n")
+             'exit_code (if (null? failed) 0 1)
+             'created_count (length created)
+             'failed_count (length failed))]))
+
 ;; ---- the tool -----------------------------------------------------------------
 (define (manage-calendar conn content #:owner [owner #f]
                          #:now-local [now-local (naive-now-local)]
@@ -170,6 +211,9 @@
                  (let ([v (string->jsexpr content)]) (if (hash? v) v (hasheq)))))
   (cond
     [(eq? args 'bad) (err "Invalid JSON arguments")]
+    ;; #d9a4b99: batch {"events":[…]} with no action → create each.
+    [(and (list? (jget args 'events)) (not (jtruthy (jget args 'action))))
+     (cal-batch-events conn (jget args 'events) owner now-local now-utc)]
     [else
      (define action0 (string-downcase
                       (string-trim (string-replace (or (jget args 'action) "list_events") "-" "_"))))

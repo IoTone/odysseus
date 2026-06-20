@@ -848,6 +848,14 @@
       (check-true (string-prefix? (hash-ref (run "{\"action\":\"create_event\",\"summary\":\"X\",\"dtstart\":\"someday maybe\"}")
                                             'error)
                                   "Could not parse dtstart 'someday maybe':"))
+      ;; #d9a4b99: a batch {"events":[...]} with no action creates each, normalizing
+      ;; a Google-style {dateTime:...} start as well as a flat dtstart.
+      (define batch (run (string-append
+                          "{\"events\":[{\"summary\":\"BatchA\",\"start\":{\"dateTime\":\"2026-06-12T10:00:00\"}},"
+                          "{\"summary\":\"BatchB\",\"dtstart\":\"2026-06-12T11:00:00\"}]}")))
+      (check-equal? (hash-ref batch 'created_count) 2)
+      (check-equal? (hash-ref batch 'failed_count) 0)
+      (check-true (string-prefix? (hash-ref batch 'response) "Created 2 event(s):"))
       (disconnect c))
 
     (test-case "review regressions — Python-truthiness & fidelity fixes"
