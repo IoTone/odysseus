@@ -34,12 +34,25 @@ pipeline {
   options {
     timestamps()
     timeout(time: 60, unit: 'MINUTES')   // cold nixpkgs/devShell + pip on first run
+    // We check out explicitly (below) with the changelog OFF: the implicit
+    // changelog computation calls `git whatchanged`, which git >= 2.54 refuses
+    // to run ("--i-still-use-this"). A CI gate doesn't need the per-build change
+    // list. Durable fix: update the Jenkins Git Client plugin (it now uses
+    // `git log --raw` instead) and you can drop this + the checkout sub-stage.
+    skipDefaultCheckout(true)
   }
 
   stages {
     stage('Nix') {
       agent { label 'nix && linux' }
       stages {
+
+        stage('checkout') {
+          steps {
+            // Explicit checkout, changelog off (see skipDefaultCheckout note).
+            checkout changelog: false, poll: false, scm: scm
+          }
+        }
 
         stage('flake check') {
           steps {
