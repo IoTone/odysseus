@@ -70,7 +70,11 @@ for i in $(seq 1 50); do curl -s -m1 "http://127.0.0.1:$MOCK_PORT/v1/chat/comple
 
 expect "$(agent_run manage_notes '{"action":"add","title":"IntgNote","checklist_items":[{"text":"x"}]}')" "Note created" "manage_notes add"
 expect "$(agent_run manage_tasks '{"action":"create","prompt":"summarize","schedule":"daily","scheduled_time":"07:00"}')" "Created task" "manage_tasks create"
-expect "$(agent_run manage_calendar '{"action":"create_event","summary":"IntgEvt","dtstart":"2026-06-20T09:00:00","reminder_minutes":30}')" "Created event" "manage_calendar create_event"
+# dtstart MUST stay in the future: the calendar tool skips the reminder Note for
+# an already-passed event ("event already passed"), which would fail the
+# "calendar reminder note persisted" check below. Far-future literal avoids
+# fragile cross-platform `date` math (and re-rotting like the old 2026 date did).
+expect "$(agent_run manage_calendar '{"action":"create_event","summary":"IntgEvt","dtstart":"2099-01-01T09:00:00","reminder_minutes":30}')" "Created event" "manage_calendar create_event"
 expect "$(agent_run manage_endpoints '{"action":"add","name":"IntgEp","base_url":"https://api.example/v1"}')" "Added endpoint" "manage_endpoints add"
 expect "$(agent_run manage_skills '{"action":"add","name":"intg-skill","description":"d","procedure":["step one"]}')" "Created skill" "manage_skills add"
 expect "$(agent_run manage_settings '{"action":"set","key":"search engine","value":"brave"}')" "Set search_provider = brave" "manage_settings set"

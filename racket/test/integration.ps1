@@ -73,7 +73,9 @@ for ($i=0; $i -lt 50; $i++) {
 
 Expect (Agent-Run 'manage_notes'    '{"action":"add","title":"IntgNote","checklist_items":[{"text":"x"}]}') 'Note created'   'manage_notes add'
 Expect (Agent-Run 'manage_tasks'     '{"action":"create","prompt":"summarize","schedule":"daily","scheduled_time":"07:00"}') 'Created task' 'manage_tasks create'
-Expect (Agent-Run 'manage_calendar'  '{"action":"create_event","summary":"IntgEvt","dtstart":"2026-06-20T09:00:00","reminder_minutes":30}') 'Created event' 'manage_calendar create_event'
+# dtstart MUST stay in the future (see integration.sh): a passed event skips the
+# reminder Note, which would fail the "calendar reminder note persisted" check.
+Expect (Agent-Run 'manage_calendar'  '{"action":"create_event","summary":"IntgEvt","dtstart":"2099-01-01T09:00:00","reminder_minutes":30}') 'Created event' 'manage_calendar create_event'
 Expect (Agent-Run 'manage_endpoints' '{"action":"add","name":"IntgEp","base_url":"https://api.example/v1"}') 'Added endpoint' 'manage_endpoints add'
 Expect (Agent-Run 'manage_skills'    '{"action":"add","name":"intg-skill","description":"d","procedure":["step one"]}') 'Created skill' 'manage_skills add'
 Expect (Agent-Run 'manage_settings'  '{"action":"set","key":"search engine","value":"brave"}') 'Set search_provider = brave' 'manage_settings set'
