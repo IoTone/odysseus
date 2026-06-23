@@ -26,10 +26,18 @@ check() { # name, <(py) <(rk) already expanded by caller via process subst
 echo "[fidelity] odysseus-logs"
 mkdir -p logs /tmp/odysseus-tmux
 printf 'a\nb\n' > logs/_fid.log; printf 'x\n' > /tmp/odysseus-tmux/_fid.log
+# Non-regular *.log entries (a CI node's global /tmp/odysseus-tmux can have them)
+# must be handled identically: Python's stat() succeeds on a directory so it's
+# included with its stat size; a broken symlink raises OSError and is skipped.
+# Racket must match and must NOT crash (it used to call file-size, which throws
+# on a directory — the divergence that failed CI).
+mkdir -p /tmp/odysseus-tmux/_fid_dir.log
+ln -sf /nonexistent-fid-target /tmp/odysseus-tmux/_fid_broken.log
 check "logs list" \
   <(python3 scripts/odysseus-logs list | norm) \
   <(racket racket/cli/odysseus-logs.rkt list | norm)
-rm -f logs/_fid.log /tmp/odysseus-tmux/_fid.log
+rm -rf logs/_fid.log /tmp/odysseus-tmux/_fid.log \
+       /tmp/odysseus-tmux/_fid_dir.log /tmp/odysseus-tmux/_fid_broken.log
 
 echo "[fidelity] odysseus-preset"
 export ODYSSEUS_DATA_DIR="$(mktemp -d)/data"; mkdir -p "$ODYSSEUS_DATA_DIR"

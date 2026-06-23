@@ -40,10 +40,22 @@
 ;; seconds always shown; fractional part appended as 6-digit microseconds only
 ;; when nonzero. Uses nanosecond-resolution stat so it matches the Python tool
 ;; byte-for-byte.
-(define (iso-of p)
-  (define ns (hash-ref (file-or-directory-stat p) 'modify-time-nanoseconds))
-  (define secs (quotient ns 1000000000))
-  (define usec (quotient (remainder ns 1000000000) 1000))
+;; ISO timestamp from a stat hash, byte-identical to Python
+;; datetime.fromtimestamp(st_mtime).isoformat(). Python does NOT truncate
+;; nanoseconds: CPython builds st_mtime as the double `sec + 1e-9*nsec`, then
+;; fromtimestamp rounds the fractional part to microseconds half-to-even and
+;; carries on overflow. We replicate that exact float path (IEEE-754 doubles +
+;; Racket's half-even `round` match CPython bit-for-bit) — a plain
+;; `quotient nsec 1000` truncates and drifts ±1us, which flaked the CLI
+;; fidelity check. isoformat omits the fractional part entirely when usec=0.
+(define (iso-of st)
+  (define ns   (hash-ref st 'modify-time-nanoseconds))
+  (define sec0 (quotient ns 1000000000))
+  (define nsec (remainder ns 1000000000))
+  (define t    (+ (exact->inexact sec0) (* 1e-9 (exact->inexact nsec))))   ; CPython st_mtime
+  (define us0  (inexact->exact (round (* (- t (exact->inexact sec0)) 1e6)))) ; round half-even
+  (define-values (secs usec)
+    (if (>= us0 1000000) (values (add1 sec0) (- us0 1000000)) (values sec0 us0)))
   (define d (seconds->date secs #t))
   (define base
     (format "~a-~a-~aT~a:~a:~a"
@@ -54,33 +66,45 @@
 (define (log-file? p)
   (regexp-match? #rx"\\.log$" (path->string p)))
 
-;; Every *.log under either base dir, as a list of paths.
+;; stat a candidate; #f if it can't be statted — matches Python's
+;; `try: p.stat() except OSError: continue` (skips broken symlinks / vanished
+;; entries). stat() FOLLOWS symlinks, like Python's Path.stat().
+(define (safe-stat p)
+  (with-handlers ([exn:fail? (lambda (_) #f)]) (file-or-directory-stat p)))
+
+;; Every *.log under either base dir, as (path . stat) pairs. A directory named
+;; *.log is included (Python's stat() succeeds on it, so it appears with its
+;; stat size) — we must NOT call `file-size`, which throws on directories.
 (define (all-logs)
   (for*/list ([base (in-list (list app-logs tmux-logs))]
               #:when (directory-exists? base)
               [p (in-list (directory-list base #:build? #t))]
-              #:when (log-file? p))
-    p))
+              #:when (log-file? p)
+              [st (in-value (safe-stat p))]
+              #:when st)
+    (cons p st)))
 
-(define (entry p)
+(define (entry p+st)
+  (define p (car p+st))
+  (define st (cdr p+st))
   (hasheq 'name     (path->string (file-name-from-path p))
           'path     (path->string p)
-          'bytes    (file-size p)
-          'modified (iso-of p)))
+          'bytes    (hash-ref st 'size)
+          'modified (iso-of st)))
 
 ;; Match a log by exact filename, basename-without-.log, or substring.
-;; Returns the most-recently-modified match, or #f.
+;; Returns the most-recently-modified match path, or #f.
 (define (resolve name)
   (define cands
-    (for/list ([p (in-list (all-logs))]
-               #:when (let* ([nm (path->string (file-name-from-path p))]
+    (for/list ([p+st (in-list (all-logs))]
+               #:when (let* ([nm (path->string (file-name-from-path (car p+st)))]
                              [stem (regexp-replace #rx"\\.log$" nm "")])
                         (or (string=? nm name)
                             (string=? stem name)
                             (string-contains? nm name))))
-      p))
+      p+st))
   (cond [(null? cands) #f]
-        [else (first (sort cands > #:key file-or-directory-modify-seconds))]))
+        [else (car (first (sort cands > #:key (lambda (ps) (hash-ref (cdr ps) 'modify-time-nanoseconds)))))]))
 
 ;; ---- subcommands -----------------------------------------------------------
 
