@@ -1,0 +1,58 @@
+// ci/Jenkinsfile.sync — NIGHTLY upstream-drift detector for the Racket port.
+//
+// Distinct from ci/Jenkinsfile (the per-push gate): different cadence and a
+// different job. This one is allowed to fail loudly without blocking the branch
+// — a red build here means "dev moved and the port needs to catch up," which is
+// a to-do, not a regression in racket-port itself.
+//
+// Set up ONCE: create a second Jenkins *Pipeline* (or Multibranch) job pointed
+// at racket-port with Script Path `ci/Jenkinsfile.sync`. The cron trigger below
+// drives it; it needs no branch-source build triggers. Same `nix && linux`
+// agent as the main gate.
+//
+// All the logic lives in ci/sync-upstream.sh (so it is runnable by hand too:
+//   nix develop --command bash ci/sync-upstream.sh
+// ). This file is just the scheduler + the checkout shims the main gate uses.
+
+pipeline {
+  agent { label 'nix && linux' }
+
+  environment {
+    NIX_CONFIG = 'extra-experimental-features = nix-command flakes'
+  }
+
+  options {
+    timestamps()
+    timeout(time: 90, unit: 'MINUTES')   // merge + schema fidelity + full flake check
+    skipDefaultCheckout(true)            // see ci/Jenkinsfile: changelog-off checkout
+  }
+
+  triggers {
+    // Nightly, jittered into the 02:00–05:00 window so concurrent jobs spread
+    // across the agent instead of all firing at 02:00.
+    cron('H H(2-5) * * *')
+  }
+
+  stages {
+    stage('checkout') {
+      steps { checkout changelog: false, poll: false, scm: scm }
+    }
+    stage('upstream drift check') {
+      steps {
+        // sync-upstream.sh does its own fetch + throwaway-worktree merge, then
+        // runs schema fidelity and `nix flake check` on the MERGED tree. It is
+        // non-destructive and never pushes.
+        sh 'nix develop --command bash ci/sync-upstream.sh'
+      }
+    }
+  }
+
+  post {
+    failure {
+      echo 'DRIFT: racket-port no longer merges cleanly / fidelity-green against dev. Port the delta listed above, then merge dev into racket-port.'
+    }
+    success {
+      echo 'In sync (or dev merges cleanly and stays fidelity-green).'
+    }
+  }
+}
