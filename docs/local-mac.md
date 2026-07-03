@@ -52,6 +52,65 @@ Open **http://localhost:7000**, log in with that password (change it in
 
 That's the complete product, fully offline.
 
+### Alternative: Apple `container` instead of Docker (macOS 26+)
+
+You don't strictly *need* Docker for this tier. None of the four services
+(app + chromadb + searxng + ntfy) touch the GPU — the accelerated model runs
+natively on the host and is reached over HTTP — so they run fine under Apple's
+first-party [`container`](https://github.com/apple/container). That's exactly the
+topology [`apple-ml-containers.md`](../apple-ml-containers.md) argues for: GPU
+work stays native, everything else can be containerized. Verified end-to-end
+against `container` 1.0.0 (all four services up, app reaching chromadb/searxng
+over the container network, login page served on :7000).
+
+One-time host setup on a clean macOS 26 box:
+
+```bash
+brew install container
+container system start                              # installs a Linux kernel on first run
+softwareupdate --install-rosetta --agree-to-license # buildkit needs Rosetta to build the app image
+```
+
+Then run the stack:
+
+```bash
+OLLAMA_HOST=0.0.0.0 ollama serve          # bind beyond loopback (see caveat below)
+scripts/apple-container-stack.sh up        # build image + start all 4 services
+scripts/apple-container-stack.sh password  # first admin password
+# open http://127.0.0.1:7000 ; then:  scripts/apple-container-stack.sh down
+```
+
+> **Use `127.0.0.1`, not `localhost`.** macOS AirPlay Receiver listens on
+> `*:7000` including IPv6 `::1`, so `localhost:7000` (which resolves IPv6-first)
+> can hit AirPlay's `403` instead of the app — the container publishes on
+> `127.0.0.1` only. Either browse to `http://127.0.0.1:7000`, disable
+> **System Settings → General → AirDrop & Handoff → AirPlay Receiver**, or set
+> `APP_PORT=` to a non-7000 port. (This bites the Docker path on port 7000 too.)
+
+> **ollama networking caveat.** Apple `container` has no `host.docker.internal`.
+> Each container is its own lightweight VM, so it reaches the Mac at the host's
+> LAN IP, *not* loopback — and ollama binds `127.0.0.1` by default. Start it with
+> `OLLAMA_HOST=0.0.0.0 ollama serve` so the container can reach it. The script
+> auto-detects the host IP (override with `HOST_IP=`) and points the app there.
+
+Why this stays an *alternative* and Docker remains the default: Apple `container`
+1.0.0 has no `compose`, so the script hand-rolls what compose does for free —
+and running it live surfaced real gaps it has to paper over:
+
+- **No name-based DNS** without a `sudo`-created `container system dns` domain, so
+  the script resolves each peer's per-network IP and injects it into the app
+  (compose just used `http://searxng:8080`). Trade-off: if you later restart
+  chromadb/searxng alone, its IP changes and you must re-run `up`.
+- **Occasional "no route to host"** on a freshly-attached container even though
+  it's "running" — the script gates on reachability and restarts the peer once
+  to clear it.
+- Plus macOS 26 + Rosetta + a kernel install, startup ordering via healthcheck
+  polls, named-volume → `./data` bind dirs, and the searxng first-boot wrapper.
+
+Docker/colima remain the lower-friction path (real `compose`, name DNS,
+`host.docker.internal`, older macOS). The script's header documents every
+compose-ism it translates.
+
 ---
 
 ## B. Run the Racket agent (the port)
