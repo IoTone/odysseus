@@ -1,0 +1,96 @@
+// ci/Jenkinsfile — CI for the Racket port of Odysseus.
+//
+// Single gate on the one available agent — a node labeled BOTH `nix` AND
+// `linux` (the `&&` label expression pins it; a bare `nix` could otherwise land
+// on a non-Linux nix node). The whole port is validated here:
+//
+//   1. `nix flake check` — reproducible build of every CLI + the web server,
+//      the rackunit suite (package checkPhase), AND the §4d `integration`
+//      check (compile + suite + mock-LLM end-to-end, fully hermetic; the
+//      live-ollama layer auto-skips with nothing on :11434). flake.lock pins
+//      nixpkgs, so it's byte-for-byte reproducible.
+//   2. fidelity (Python parity) — byte-identity vs the LIVE Python, run
+//      OUTSIDE the flake sandbox (which has neither ci/ nor the Python tree)
+//      against the full checkout, under the devShell's racket+python3:
+//        • schema DSL vs FUNCTION_TOOL_SCHEMAS — HARD gate (python3 stdlib).
+//        • converter + per-CLI fidelity — BEST-EFFORT: need the app venv, and
+//          pip manylinux wheels can fail to import on NixOS. A real *mismatch*
+//          fails the build; a venv that won't import is skipped with a warning.
+//
+// macOS / Windows / non-Nix-Linux lanes are intentionally omitted — no agents
+// for them yet. The full cross-platform matrix (with RUN_* toggles, raco-exe
+// artifacts, the Windows installer step) is preserved in git history at commit
+// cdaaec1 and the pattern in NIX_DEPLOYMENT.md §7; re-add a stage with the
+// right label the day a macos/windows node exists.
+
+pipeline {
+  agent none
+
+  environment {
+    // Enable flakes for every `nix` invocation without a per-command flag.
+    NIX_CONFIG = 'extra-experimental-features = nix-command flakes'
+  }
+
+  options {
+    timestamps()
+    timeout(time: 60, unit: 'MINUTES')   // cold nixpkgs/devShell + pip on first run
+    // We check out explicitly (below) with the changelog OFF: the implicit
+    // changelog computation calls `git whatchanged`, which git >= 2.54 refuses
+    // to run ("--i-still-use-this"). A CI gate doesn't need the per-build change
+    // list. Durable fix: update the Jenkins Git Client plugin (it now uses
+    // `git log --raw` instead) and you can drop this + the checkout sub-stage.
+    skipDefaultCheckout(true)
+  }
+
+  stages {
+    stage('Nix') {
+      agent { label 'nix && linux' }
+      stages {
+
+        stage('checkout') {
+          steps {
+            // Explicit checkout, changelog off (see skipDefaultCheckout note).
+            checkout changelog: false, poll: false, scm: scm
+          }
+        }
+
+        stage('flake check') {
+          steps {
+            // Builds the current arch + evaluates the others; runs the suite
+            // (checkPhase) and the §4d integration check (compile + suite +
+            // mock end-to-end, hermetic).
+            sh 'nix flake check -L'
+          }
+        }
+
+        stage('fidelity (Python parity)') {
+          steps {
+            // The flake sandbox is src=./racket only, so the Python-vs-Racket
+            // diffs run here, against the full checkout, under the devShell.
+            sh '''
+              nix develop --command bash -euc '
+                export PLTCOLLECTS="$PWD/racket/pkgs:"
+
+                # (1) HARD: tool-schema byte-identity — python3 stdlib only.
+                bash ci/fidelity-tools.sh
+
+                # (2) BEST-EFFORT: converter + per-CLI fidelity need the app
+                # venv. pip wheels can fail to import on NixOS, so gate on a
+                # successful import; a real mismatch below still fails the build.
+                if python3 -m venv .venv \
+                   && . .venv/bin/activate \
+                   && pip install -q -r requirements.txt \
+                   && python3 -c "import src.agent_tools" 2>/dev/null; then
+                  bash ci/fidelity-convert.sh
+                  bash ci/fidelity.sh
+                else
+                  echo "[warn] app venv unavailable on this agent (NixOS pip wheels) — converter/CLI fidelity skipped; flake check + schema fidelity still gate."
+                fi
+              '
+            '''
+          }
+        }
+      }
+    }
+  }
+}

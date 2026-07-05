@@ -1,0 +1,402 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Odysseus — Racket Port · Manual Test Plan</title>
+<style>
+  :root{
+    --bg:#0f1115; --panel:#171a21; --panel2:#1e222b; --ink:#e6e8ee; --muted:#9aa3b2;
+    --line:#2a2f3a; --accent:#7bd88f; --accent2:#5aa9ff;
+    --pass:#3fb950; --fail:#f85149; --block:#d29922; --untested:#3a3f4b;
+    --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+    font:15px/1.55 ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
+  a{color:var(--accent2)}
+  code,kbd{font-family:var(--mono)}
+  header{position:sticky;top:0;z-index:10;background:linear-gradient(180deg,#141821,#10131a);
+    border-bottom:1px solid var(--line);padding:14px 20px;backdrop-filter:blur(6px)}
+  .title{display:flex;align-items:baseline;gap:12px;flex-wrap:wrap}
+  .title h1{font-size:18px;margin:0;letter-spacing:.2px}
+  .title .sub{color:var(--muted);font-size:13px}
+  .bar{height:10px;border-radius:6px;background:var(--untested);overflow:hidden;margin:10px 0 8px;display:flex}
+  .bar > i{height:100%;display:block}
+  .bar .p{background:var(--pass)} .bar .f{background:var(--fail)} .bar .b{background:var(--block)}
+  .counts{display:flex;gap:14px;flex-wrap:wrap;align-items:center;font-size:13px;color:var(--muted)}
+  .counts b{color:var(--ink)}
+  .dot{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:5px;vertical-align:middle}
+  .dot.p{background:var(--pass)} .dot.f{background:var(--fail)} .dot.b{background:var(--block)} .dot.u{background:var(--untested)}
+  .toolbar{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}
+  button,select{font:inherit;color:var(--ink);background:var(--panel2);border:1px solid var(--line);
+    border-radius:8px;padding:6px 11px;cursor:pointer}
+  button:hover{border-color:#3a4150}
+  main{max-width:1000px;margin:0 auto;padding:22px 20px 80px}
+  .env{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px;
+    background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:14px;margin:6px 0 22px}
+  .env label{display:flex;flex-direction:column;gap:4px;font-size:12px;color:var(--muted)}
+  .env input{background:var(--panel2);border:1px solid var(--line);border-radius:7px;color:var(--ink);padding:7px 9px;font:inherit}
+  .intro{background:var(--panel);border:1px solid var(--line);border-left:3px solid var(--accent);
+    border-radius:10px;padding:14px 16px;margin-bottom:24px}
+  .intro h2{margin:.1em 0 .4em;font-size:15px}
+  .intro pre{margin:.4em 0}
+  section{margin:0 0 26px}
+  section > h2{font-size:15px;border-bottom:1px solid var(--line);padding-bottom:7px;margin:26px 0 4px;
+    display:flex;justify-content:space-between;align-items:center}
+  section > h2 .secstat{font-size:12px;color:var(--muted);font-weight:400}
+  .case{background:var(--panel);border:1px solid var(--line);border-radius:12px;margin:12px 0;overflow:hidden}
+  .case.s-pass{border-color:#244b2c} .case.s-fail{border-color:#5a2420} .case.s-block{border-color:#4a3a16}
+  .case h3{margin:0;font-size:14px;padding:12px 14px;display:flex;gap:10px;align-items:center;cursor:pointer}
+  .case h3 .id{font-family:var(--mono);font-size:12px;color:var(--muted);background:var(--panel2);
+    border:1px solid var(--line);border-radius:6px;padding:1px 7px}
+  .case h3 .who{margin-left:auto;font-size:11px;color:var(--muted);font-weight:400}
+  .body{padding:0 14px 14px;border-top:1px solid var(--line)}
+  .lbl{font-size:11px;text-transform:uppercase;letter-spacing:.6px;color:var(--muted);margin:12px 0 4px}
+  pre{background:#0b0d12;border:1px solid var(--line);border-radius:9px;padding:11px 12px;overflow:auto;
+    font-family:var(--mono);font-size:12.5px;position:relative}
+  pre .copy{position:absolute;top:6px;right:6px;font-size:11px;padding:2px 8px;opacity:.7}
+  ol{margin:.3em 0;padding-left:22px} ol li{margin:3px 0}
+  .expect{background:#0e1a12;border:1px solid #244b2c;border-radius:9px;padding:10px 12px;color:#cde9d3}
+  .ctrls{display:flex;gap:8px;align-items:center;margin-top:14px;flex-wrap:wrap}
+  .ctrls .seg{display:flex;border:1px solid var(--line);border-radius:9px;overflow:hidden}
+  .ctrls .seg button{border:0;border-radius:0;background:transparent;padding:7px 14px}
+  .ctrls .seg button.on.p{background:var(--pass);color:#06210d}
+  .ctrls .seg button.on.f{background:var(--fail);color:#2a0a08}
+  .ctrls .seg button.on.b{background:var(--block);color:#241a02}
+  textarea{width:100%;margin-top:10px;background:var(--panel2);border:1px solid var(--line);border-radius:8px;
+    color:var(--ink);padding:9px;font:inherit;min-height:42px;resize:vertical}
+  .hide{display:none !important}
+  footer{color:var(--muted);font-size:12px;text-align:center;padding:24px}
+  @media print{
+    header{position:static} .toolbar,.case h3 .who,pre .copy{display:none}
+    body{background:#fff;color:#000} .case,.env,.intro{break-inside:avoid;border-color:#bbb}
+    pre,.expect{background:#f4f4f4;color:#000;border-color:#ccc}
+    :root{--ink:#000;--muted:#444}
+  }
+</style>
+</head>
+<body>
+<header>
+  <div class="title">
+    <h1>⊹ Odysseus — Racket Port</h1>
+    <span class="sub">Manual Test Plan · v0.2 (Phase 1 CLIs + strangler routes)</span>
+  </div>
+  <div class="bar" id="bar"><i class="p"></i><i class="f"></i><i class="b"></i></div>
+  <div class="counts" id="counts"></div>
+  <div class="toolbar">
+    <select id="filter" title="Filter cases">
+      <option value="all">Show: all</option>
+      <option value="untested">Only untested</option>
+      <option value="fail">Only failed</option>
+      <option value="block">Only blocked</option>
+      <option value="pass">Only passed</option>
+    </select>
+    <button id="expand">Expand all</button>
+    <button id="collapse">Collapse all</button>
+    <button id="export">Export results (JSON)</button>
+    <button onclick="window.print()">Print / PDF</button>
+    <button id="reset">Reset all</button>
+  </div>
+</header>
+
+<main>
+  <div class="env" id="env">
+    <label>Tester<input data-env="tester" placeholder="name"></label>
+    <label>Date<input data-env="date" type="date"></label>
+    <label>OS / version<input data-env="os" placeholder="Ubuntu 22.04 x86_64"></label>
+    <label>Racket version<input data-env="racket" placeholder="9.2 [cs] (official)"></label>
+    <label>Branch / commit<input data-env="commit" placeholder="racket-port @ 2de9cbf"></label>
+  </div>
+
+  <div class="intro">
+    <h2>Before you start — one-time setup (Linux dev box)</h2>
+    <p>Install the official Racket (not Homebrew on Linux), put it on PATH, install deps, and build:</p>
+    <pre><span class="copy">copy</span>racket/install-racket.sh
+export PATH="$HOME/racket/bin:$PATH"
+raco pkg install --auto --skip-installed web-server-lib db-lib
+raco pkg install --link racket/pkgs/cli-kit racket/pkgs/db-kit racket/pkgs/web-kit
+cd racket && raco make config.rkt cli/*.rkt domain/*.rkt server/*.rkt test/*.rkt</pre>
+    <p style="color:var(--muted);margin:.6em 0 0">
+      On <b>macOS / Windows</b>, follow the per-OS runbook in <code>VALIDATION.md</code>
+      (PowerShell needs the explicit file list above — it won't expand <code>*.rkt</code>).
+    </p>
+    <p style="color:var(--muted);margin:.6em 0 0">
+      All commands below assume you are in the <code>racket/</code> directory with that PATH set,
+      unless a step says otherwise. <b>Pass</b> only when the actual output matches <b>Expected</b>.
+    </p>
+  </div>
+
+  <div id="plan"></div>
+  <footer>Odysseus Racket port · manual test plan · results saved in your browser (localStorage)</footer>
+</main>
+
+<script>
+// ---- Test plan data --------------------------------------------------------
+const PLAN = [
+ {sec:"1 · Toolchain & build", cases:[
+   {id:"TB-1", t:"Official Racket installs and reports v9.2 [cs]",
+    steps:["Run <code>racket/install-racket.sh</code> (or confirm <code>~/racket/bin/racket</code> exists).",
+           "Run <code>racket --version</code>."],
+    expect:"Prints “Welcome to Racket v9.2 [cs].” — and <code>which racket</code> points at <code>~/racket/bin/racket</code> (not Homebrew)."},
+   {id:"TB-2", t:"All modules byte-compile cleanly", cmd:"raco make config.rkt cli/*.rkt domain/*.rkt server/*.rkt test/*.rkt && echo OK",
+    expect:"No errors; prints <code>OK</code>. (A clean <code>compiled/</code> appears next to each source.)"},
+ ]},
+ {sec:"2 · Automated suite", cases:[
+   {id:"AT-1", t:"Portable rackunit suite is green", cmd:"racket test/run-tests.rkt",
+    expect:"<code>23 success(es) 0 failure(s) 0 error(s) 23 test(s) run</code>. Exit code 0."},
+ ]},
+ {sec:"3 · CLI — odysseus-logs", cases:[
+   {id:"LG-1", t:"list shows app + tmux logs (compact JSON when piped)",
+    pre:"Seed: <code>mkdir -p ../logs /tmp/odysseus-tmux && printf 'a\\nb\\n' > ../logs/x.log && printf 'y\\n' > /tmp/odysseus-tmux/serve.log</code>",
+    cmd:"racket cli/odysseus-logs.rkt list | head -c 300",
+    expect:"A JSON array; each entry has <code>name</code>, <code>path</code>, <code>bytes</code>, <code>modified</code> (ISO time). Newest first."},
+   {id:"LG-2", t:"--pretty indents; TTY auto-pretties", cmd:"racket cli/odysseus-logs.rkt list --pretty",
+    expect:"Indented (2-space) JSON array."},
+   {id:"LG-3", t:"cat prints file contents", cmd:"racket cli/odysseus-logs.rkt cat x",
+    expect:"Prints <code>a</code> / <code>b</code> (the file body), no JSON."},
+   {id:"LG-4", t:"tail one-shot returns last N lines", cmd:"racket cli/odysseus-logs.rkt tail serve -n 1",
+    expect:"Prints the last line of the matched log."},
+   {id:"LG-5", t:"clean removes old tmux logs only", cmd:"racket cli/odysseus-logs.rkt clean --days 0",
+    expect:"JSON <code>{deleted:[...],kept:N,cutoff_days:0}</code>; app logs untouched."},
+   {id:"LG-6", t:"missing log → clean error + exit 1", cmd:"racket cli/odysseus-logs.rkt cat nope; echo exit=$?",
+    expect:"<code>error: no log matching \"nope\"</code> on stderr; <code>exit=1</code>."},
+   {id:"LG-7", t:"--version", cmd:"racket cli/odysseus-logs.rkt --version",
+    expect:"<code>odysseus-logs 0.1.0</code>."},
+ ]},
+ {sec:"4 · CLI — odysseus-preset", cases:[
+   {id:"PR-1", t:"set creates a preset and echoes the entry",
+    pre:"Isolate: <code>export ODYSSEUS_DATA_DIR=$(mktemp -d)</code>",
+    cmd:"racket cli/odysseus-preset.rkt set coder --temperature 0.3 --prompt 'Write code.' --display-name Coder --pretty",
+    expect:"<code>{ok:true,id:\"coder\",entry:{name:\"Coder\",system_prompt:\"Write code.\",temperature:0.3}}</code>."},
+   {id:"PR-2", t:"get returns the stored entry with id", cmd:"racket cli/odysseus-preset.rkt get coder --pretty",
+    expect:"Entry incl. <code>id:\"coder\"</code>, <code>name:\"Coder\"</code>, <code>system_prompt</code>, <code>temperature:0.3</code>."},
+   {id:"PR-3", t:"list summarizes (prompt_length, not full prompt)", cmd:"racket cli/odysseus-preset.rkt list --pretty",
+    expect:"Row with <code>id,name,temperature,prompt_length:11</code>. Sorted by id."},
+   {id:"PR-4", t:"--prompt-file reads prompt from a file",
+    pre:"<code>echo 'From a file' > /tmp/p.md</code>",
+    cmd:"racket cli/odysseus-preset.rkt set fromfile --prompt-file /tmp/p.md --pretty",
+    expect:"<code>entry.system_prompt == \"From a file\\n\"</code> (file contents)."},
+   {id:"PR-5", t:"delete removes and returns snapshot", cmd:"racket cli/odysseus-preset.rkt delete coder --pretty",
+    expect:"<code>{ok:true,deleted:{id:\"coder\",...}}</code>; subsequent <code>get coder</code> errors."},
+   {id:"PR-6", t:"a .bak backup is written on save",
+    pre:"Same shell as PR-1 (which did <code>export ODYSSEUS_DATA_DIR=$(mktemp -d)</code>). If unsure, check: <code>echo $ODYSSEUS_DATA_DIR</code> — if empty, set it again and re-run a <code>set</code>/<code>delete</code> twice so a backup exists. Windows: <code>$env:ODYSSEUS_DATA_DIR</code> / <code>dir $env:ODYSSEUS_DATA_DIR\\presets.json*</code>.",
+    cmd:"ls \"$ODYSSEUS_DATA_DIR\"/presets.json*",
+    expect:"Both <code>presets.json</code> and <code>presets.json.bak</code> exist after a second mutation."},
+ ]},
+ {sec:"5 · CLI — odysseus-signature (SQLite)", cases:[
+   {id:"SG-0", t:"Seed a test DB (precondition)",
+    pre:"This CLI needs a DB. Easiest: run the automated suite (AT-1) which seeds its own. To test by hand, create one:",
+    cmd:`export DATABASE_URL="sqlite:///$(mktemp -d)/app.db"
+python3 - <<'PY'
+import sqlite3,os,re
+p=re.sub(r'^sqlite:///','',os.environ['DATABASE_URL'])
+c=sqlite3.connect(p);c.execute("CREATE TABLE signatures(id TEXT PRIMARY KEY,owner TEXT,name TEXT,width INT,height INT,data_png TEXT,svg TEXT,created_at TEXT)")
+url="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAC0lEQVR4nGNgAAIAAAUAAXpeqz8AAAAASUVORK5CYII="
+c.execute("INSERT INTO signatures VALUES(?,?,?,?,?,?,?,?)",("sig1","alice","Alice",200,80,url,"<svg/>","2026-01-02T03:04:05"))
+c.execute("INSERT INTO signatures VALUES(?,?,?,?,?,?,?,?)",("sig2",None,"NoOwner",100,40,url,None,"2026-02-02T00:00:00"))
+c.commit();c.close();print("seeded",p)
+PY`,
+    expect:"Prints <code>seeded …/app.db</code>. (<code>DATABASE_URL</code> stays exported for the next steps.)"},
+   {id:"SG-1", t:"list — DESC by created_at, NULL owner→\"\"", cmd:"racket cli/odysseus-signature.rkt list --pretty",
+    expect:"Two rows, <code>sig2</code> first; <code>sig2.owner==\"\"</code>, <code>sig2.has_svg==false</code>, <code>sig1.has_svg==true</code>; <code>png_bytes_approx</code> is an integer."},
+   {id:"SG-2", t:"show returns full record incl. data_png", cmd:"racket cli/odysseus-signature.rkt show sig1 --pretty",
+    expect:"Includes <code>data_png</code> (data-URL string) and <code>has_svg:true</code>."},
+   {id:"SG-3", t:"export decodes a valid PNG", cmd:"racket cli/odysseus-signature.rkt export sig1 --png /tmp/sig1.png && file /tmp/sig1.png",
+    expect:"<code>{ok:true,...,bytes:N}</code> and <code>file</code> reports <code>PNG image data, 1 x 1</code>."},
+   {id:"SG-4", t:"delete works; missing id errors", cmd:"racket cli/odysseus-signature.rkt delete sig2; racket cli/odysseus-signature.rkt delete nope; echo exit=$?",
+    expect:"First: <code>{ok:true,id:\"sig2\",deleted:true}</code>. Second: <code>error: no signature with id \"nope\"</code>, <code>exit=1</code>."},
+ ]},
+ {sec:"5b · DB CLIs — notes / sessions / tasks", cases:[
+   {id:"DB-0", t:"Seed a test DB (REQUIRED before DB-2/DB-3 and section 6)",
+    pre:"These CLIs/routes read the app DB; on a fresh machine those tables don't exist yet (you'd get <code>no such table</code>). This one command creates the schema + sample rows — no Python app needed. Run from <code>racket/</code>; it writes the repo-default <code>../data/app.db</code> (or set <code>DATABASE_URL</code> first). Keep the same shell/DATABASE_URL for the cases below.",
+    cmd:"racket test/seed-db.rkt",
+    expect:"<code>seeded …/data/app.db</code> + a summary (notes, sessions, tasks+runs, signatures, mcp, calendar). Idempotent — safe to re-run."},
+   {id:"DB-1", t:"Covered end-to-end by the automated suite (AT-1)",
+    pre:"notes, sessions, and tasks are exercised by the rackunit suite against a seeded temp DB: ordering, <code>--archived</code> filters, JSON <code>items</code>, ISO timestamps (zero + non-zero microseconds), task prompt preview + webhook redaction, the run column mapping, and the web-shape route. Spot-check manually below.",
+    cmd:"racket test/run-tests.rkt",
+    expect:"Part of the 10 passing cases (no DB setup needed — it seeds its own temp DB)."},
+   {id:"DB-2", t:"notes list against the seeded DB",
+    pre:"After DB-0 (same shell).",
+    cmd:"racket cli/odysseus-notes.rkt list --pretty",
+    expect:"JSON array with seed-note-1 (active); each note has <code>items</code> (array), <code>pinned</code>/<code>archived</code> (bool), and <code>created_at</code>/<code>updated_at</code> as ISO (T-separated). (seed-note-2 is owner=bob — also active.)"},
+   {id:"DB-3", t:"tasks runs maps finished_at→completed_at, result→output_preview",
+    pre:"After DB-0 (same shell).",
+    cmd:"racket cli/odysseus-tasks.rkt runs --pretty",
+    expect:"seed-run-1 with <code>started_at</code>, <code>completed_at</code> (from finished_at; \"\" if null), <code>status</code>, <code>output_preview</code> (from result)."},
+ ]},
+ {sec:"6 · Server &amp; routes", cases:[
+   {id:"SV-0", t:"Start the server in the background (do this once)",
+    pre:"The server runs in the foreground, so start it detached and curl from the SAME shell. Routes need a seeded DB — run DB-0 first. Stop it at the end of the section.",
+    cmd:"racket test/seed-db.rkt          # if not already seeded\n# *nix:\nracket server/main.rkt --port 8099 &\n# Windows PowerShell:\n# Start-Process racket -ArgumentList 'server/main.rkt','--port','8099'\nsleep 2",
+    expect:"<code>... listening on http://127.0.0.1:8099</code>. (Stop later: *nix <code>kill %1</code> · Windows <code>Get-Process racket | Stop-Process</code>.)"},
+   {id:"SV-1", t:"/health returns 200 JSON",
+    cmd:"curl -s -w '\\n%{http_code}\\n' localhost:8099/health",
+    expect:"<code>{\"status\":\"ok\",\"service\":\"odysseus-racket\",\"version\":\"0.1.0\"}</code> then <code>200</code>."},
+   {id:"SV-2", t:"unknown path → 404 JSON with path echo", cmd:"curl -s -w '\\n%{http_code}\\n' localhost:8099/nope",
+    expect:"<code>{\"error\":\"not found\",\"path\":\"nope\"}</code> then <code>404</code>."},
+   {id:"SV-3", t:"GET /api/notes — real route, web shape {\"notes\":[...]}",
+    pre:"Needs the seeded DB (DB-0) and the server (SV-0).",
+    cmd:"curl -s localhost:8099/api/notes",
+    expect:"<code>{\"notes\":[...]}</code> — wrapped object with seed-note-1/2; each note has all columns (owner, items, image_url, repeat, ai_*, created_at, …). Empty (but existing) DB → <code>{\"notes\":[]}</code>. Byte-identical to the FastAPI route. (No tables → 500 <code>no such table</code> — run DB-0.)"},
+   {id:"SV-4", t:"owner filter via trusted header", cmd:"curl -s -H 'X-Odysseus-User: nobody' localhost:8099/api/notes",
+    expect:"<code>{\"notes\":[]}</code> (no rows owned by 'nobody'). No header = no owner filter (auth-off parity). Stop server: *nix <code>kill %1</code> · Windows <code>Get-Process racket | Stop-Process</code>."},
+ ]},
+ {sec:"6b · Strangler proxy (optional / advanced)", cases:[
+   {id:"PX-1", t:"proxy routes migrated paths to Racket, rest to Python",
+    pre:"Needs the Python app running too (<code>.venv</code> + <code>uvicorn app:app --port 7000</code>) and the Racket server on 8099. Linux/macOS path; on Windows it works the same but is optional for first validation.",
+    cmd:"racket server/proxy.rkt --port 8080\ncurl -s localhost:8080/api/notes   # -> Racket (web shape)\ncurl -s -o /dev/null -w '%{http_code}\\n' localhost:8080/   # -> real Python app",
+    expect:"<code>/api/notes</code> served by Racket (<code>{\"notes\":[...]}</code>); <code>/</code> falls through to Python (200 HTML). Flip more routes via <code>RACKET_PREFIXES=\"/api/notes,/api/foo\"</code> — no recompile."},
+ ]},
+ {sec:"7 · Packaging (the portability win)", cases:[
+   {id:"PK-1", t:"raco exe builds a working standalone binary",
+    cmd:"mkdir -p dist && raco exe -o dist/odysseus-logs cli/odysseus-logs.rkt && ./dist/odysseus-logs --version",
+    expect:"Builds, then prints <code>odysseus-logs 0.1.0</code> — <b>no segfault</b> (the Homebrew bottle segfaults here; official build does not)."},
+   {id:"PK-2", t:"raco distribute makes a relocatable bundle",
+    cmd:"raco distribute dist/bundle dist/odysseus-logs && ./dist/bundle/bin/odysseus-logs --version",
+    expect:"Self-contained dir; the bundled binary runs and prints the version."},
+   {id:"PK-3", t:"standalone binary is byte-identical to Python",
+    pre:"Seed logs as in LG-1.",
+    cmd:"diff <(python3 ../scripts/odysseus-logs list | python3 -m json.tool --sort-keys) <(./dist/odysseus-logs list | python3 -m json.tool --sort-keys) && echo IDENTICAL",
+    expect:"<code>IDENTICAL</code> (no diff)."},
+ ]},
+ {sec:"8 · Fidelity vs Python (Linux, needs app venv)", cases:[
+   {id:"FD-1", t:"fidelity script passes for venv-free tools",
+    pre:"From repo root.",
+    cmd:"ci/fidelity.sh",
+    expect:"<code>✓ logs list</code>, <code>✓ preset list</code>, <code>✓ preset get default</code>, then <code>all checks identical ✓</code>, exit 0."},
+   {id:"FD-2", t:"(with venv) DB-tool fidelity — future",
+    pre:"<code>python3 -m venv .venv && . .venv/bin/activate && pip install -r requirements.txt</code>",
+    cmd:"# once signature fixtures are added to ci/fidelity.sh:\nci/fidelity.sh",
+    expect:"Signature/notes/tasks diffs also report identical. (Marked Blocked until fixtures land.)"},
+ ]},
+ {sec:"9 · Cross-platform (verify later)", cases:[
+   {id:"XP-1", t:"macOS: build + suite + raco exe",
+    pre:"On a Mac: <code>brew install minimal-racket</code> (or <code>--cask racket</code>).",
+    cmd:"cd racket && raco make cli/*.rkt && racket test/run-tests.rkt && raco exe -o dist/odysseus-logs cli/odysseus-logs.rkt && ./dist/odysseus-logs --version",
+    expect:"Suite green; binary runs. (Run via Jenkins once a 'macos' agent exists.)"},
+   {id:"XP-2", t:"Windows: build + suite + raco exe",
+    pre:"On Windows: install official Racket (win32-cs).",
+    cmd:"cd racket; raco make cli\\*.rkt; racket test\\run-tests.rkt; raco exe -o dist\\odysseus-logs.exe cli\\odysseus-logs.rkt; .\\dist\\odysseus-logs.exe --version",
+    expect:"Suite green; <code>.exe</code> runs. (Run via Jenkins once a 'windows' agent exists.)"},
+ ]},
+];
+
+// ---- Rendering + state -----------------------------------------------------
+const KEY="odysseus-rkt-testplan-v1";
+const store=JSON.parse(localStorage.getItem(KEY)||"{}");
+const save=()=>localStorage.setItem(KEY,JSON.stringify(store));
+const esc=s=>s.replace(/&/g,"&amp;").replace(/</g,"&lt;");
+
+function render(){
+  const plan=document.getElementById("plan"); plan.innerHTML="";
+  PLAN.forEach((s,si)=>{
+    const sec=document.createElement("section");
+    sec.innerHTML=`<h2>${esc(s.sec)} <span class="secstat" data-secstat="${si}"></span></h2>`;
+    s.cases.forEach(c=>{
+      const st=(store[c.id]||{}).status||"";
+      const note=(store[c.id]||{}).note||"";
+      const div=document.createElement("div");
+      div.className="case"+(st?` s-${st}`:"");
+      div.dataset.cid=c.id; div.dataset.status=st;
+      div.innerHTML=`
+        <h3 data-toggle><span class="id">${c.id}</span> ${esc(c.t)}
+          <span class="who">${st?st.toUpperCase():"untested"}</span></h3>
+        <div class="body">
+          ${c.pre?`<div class="lbl">Preconditions</div><div>${c.pre}</div>`:""}
+          ${c.steps?`<div class="lbl">Steps</div><ol>${c.steps.map(x=>`<li>${x}</li>`).join("")}</ol>`:""}
+          ${c.cmd?`<div class="lbl">Command</div><pre><span class="copy">copy</span>${esc(c.cmd)}</pre>`:""}
+          <div class="lbl">Expected result</div><div class="expect">${c.expect}</div>
+          <div class="ctrls">
+            <div class="seg">
+              <button class="p ${st==="pass"?"on":""}" data-set="pass">Pass</button>
+              <button class="f ${st==="fail"?"on":""}" data-set="fail">Fail</button>
+              <button class="b ${st==="block"?"on":""}" data-set="block">Blocked</button>
+            </div>
+            <button data-set="">Clear</button>
+          </div>
+          <textarea placeholder="Notes / actual output…">${esc(note)}</textarea>
+        </div>`;
+      sec.appendChild(div);
+    });
+    plan.appendChild(sec);
+  });
+  bind(); recompute(); applyFilter();
+}
+
+function bind(){
+  document.querySelectorAll(".case").forEach(div=>{
+    const cid=div.dataset.cid;
+    div.querySelectorAll("[data-set]").forEach(b=>b.onclick=e=>{
+      e.stopPropagation();
+      const v=b.getAttribute("data-set");
+      store[cid]=store[cid]||{}; store[cid].status=v; save();
+      div.dataset.status=v; div.className="case"+(v?` s-${v}`:"");
+      div.querySelectorAll(".seg button").forEach(x=>x.classList.toggle("on",x.getAttribute("data-set")===v));
+      div.querySelector(".who").textContent=v?v.toUpperCase():"untested";
+      recompute(); applyFilter();
+    });
+    div.querySelector("textarea").oninput=e=>{store[cid]=store[cid]||{};store[cid].note=e.target.value;save();};
+    div.querySelector("[data-toggle]").onclick=()=>div.querySelector(".body").classList.toggle("hide");
+  });
+  document.querySelectorAll("pre .copy").forEach(c=>c.onclick=()=>{
+    const t=c.parentElement.innerText.replace(/^copy\n?/,"");
+    navigator.clipboard.writeText(t); c.textContent="copied"; setTimeout(()=>c.textContent="copy",1200);
+  });
+}
+
+function recompute(){
+  let p=0,f=0,b=0,total=0;
+  const per={};
+  PLAN.forEach((s,si)=>{per[si]={p:0,f:0,b:0,n:s.cases.length};
+    s.cases.forEach(c=>{const st=(store[c.id]||{}).status;total++;
+      if(st==="pass"){p++;per[si].p++} else if(st==="fail"){f++;per[si].f++} else if(st==="block"){b++;per[si].b++}});});
+  const u=total-p-f-b;
+  const bar=document.getElementById("bar");
+  bar.querySelector(".p").style.width=(p/total*100)+"%";
+  bar.querySelector(".f").style.width=(f/total*100)+"%";
+  bar.querySelector(".b").style.width=(b/total*100)+"%";
+  document.getElementById("counts").innerHTML=
+    `<span><span class="dot p"></span><b>${p}</b> pass</span>
+     <span><span class="dot f"></span><b>${f}</b> fail</span>
+     <span><span class="dot b"></span><b>${b}</b> blocked</span>
+     <span><span class="dot u"></span><b>${u}</b> untested</span>
+     <span>·&nbsp; <b>${Math.round((p)/total*100)}%</b> passing of ${total}</span>`;
+  document.querySelectorAll("[data-secstat]").forEach(el=>{
+    const x=per[el.getAttribute("data-secstat")];
+    el.textContent=`${x.p}/${x.n} pass${x.f?` · ${x.f} fail`:""}${x.b?` · ${x.b} blocked`:""}`;
+  });
+}
+
+function applyFilter(){
+  const v=document.getElementById("filter").value;
+  document.querySelectorAll(".case").forEach(div=>{
+    const st=div.dataset.status||"untested";
+    const show=v==="all"||(v==="untested"&&st==="untested")||v===st;
+    div.classList.toggle("hide",!show);
+  });
+}
+
+// env fields
+document.querySelectorAll("[data-env]").forEach(inp=>{
+  const k="env_"+inp.getAttribute("data-env");
+  inp.value=store[k]||""; inp.oninput=()=>{store[k]=inp.value;save();};
+});
+
+document.getElementById("filter").onchange=applyFilter;
+document.getElementById("expand").onclick=()=>document.querySelectorAll(".body").forEach(b=>b.classList.remove("hide"));
+document.getElementById("collapse").onclick=()=>document.querySelectorAll(".body").forEach(b=>b.classList.add("hide"));
+document.getElementById("reset").onclick=()=>{if(confirm("Clear all results & notes?")){
+  Object.keys(store).forEach(k=>{if(!k.startsWith("env_"))delete store[k]});save();render();}};
+document.getElementById("export").onclick=()=>{
+  const out={generated:new Date().toISOString(),env:{},results:{}};
+  Object.keys(store).forEach(k=>{if(k.startsWith("env_"))out.env[k.slice(4)]=store[k];else out.results[k]=store[k];});
+  const blob=new Blob([JSON.stringify(out,null,2)],{type:"application/json"});
+  const a=document.createElement("a");a.href=URL.createObjectURL(blob);
+  a.download="odysseus-racket-test-results.json";a.click();
+};
+
+render();
+</script>
+</body>
+</html>

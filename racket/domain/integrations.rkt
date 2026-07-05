@@ -1,0 +1,491 @@
+#lang racket/base
+
+;; domain/integrations.rkt — the integration-surface agent tools:
+;; manage_endpoints, manage_mcp, manage_webhooks, manage_tokens. Ports of the
+;; matching do_manage_* functions in src/tool_implementations.py.
+;;
+;; Runtime notes (each is Python's own fallback, not a stub):
+;; - manage_mcp: every branch that needs the live MCP manager has an explicit
+;;   no-manager path in Python (list → "No MCP manager available", add →
+;;   "(0 tools)", reconnect → error). This CLI has no manager, so those paths
+;;   ARE the faithful port.
+;; - manage_endpoints add: api_key is stored as plaintext — core/database.py's
+;;   EncryptedText explicitly supports legacy plaintext rows (read unchanged,
+;;   encrypted by the Python side on its next write / startup migration).
+;; - manage_tokens create: Python bcrypt-hashes the token and app.py verifies
+;;   with bcrypt; Racket has no bundled bcrypt, so a token created here could
+;;   never authenticate. create returns an actionable error instead.
+
+(require db
+         json
+         net/dns
+         racket/string
+         racket/list
+         db-kit
+         "util.rkt")
+
+(provide manage-endpoints manage-mcp manage-webhooks manage-tokens
+         validate-webhook-url validate-events
+         validate-mcp-command)   ; exported for tests
+
+(define (err msg) (hasheq 'error msg 'exit_code 1))
+(define (or-sql-null v) (if (eq? v #f) sql-null v))
+
+(define (parse-args content)
+  (with-handlers ([exn:fail? (lambda (_) 'bad)])
+    (let ([v (string->jsexpr content)]) (if (hash? v) v (hasheq)))))
+
+;; ---- manage_endpoints --------------------------------------------------------
+
+(define (manage-endpoints conn content #:owner [owner #f])
+  (define args (parse-args content))
+  (cond
+    [(eq? args 'bad) (err "Invalid JSON arguments")]
+    [else
+     (define action (or (jget args 'action) "list"))
+     (with-handlers ([exn:fail? (lambda (e) (err (exn-message e)))])
+       (case action
+         [("list")
+          (define items
+            (for/list ([r (in-list (query-rows conn
+                            "SELECT id, name, base_url, is_enabled FROM model_endpoints"))])
+              (hasheq 'id (vector-ref r 0) 'name (sql-or-null (vector-ref r 1))
+                      'base_url (sql-or-null (vector-ref r 2))
+                      'is_enabled (sql->bool (vector-ref r 3)))))
+          (hasheq 'response (format "~a endpoints" (length items)) 'endpoints items 'exit_code 0)]
+         [("add")
+          (define name (or (jget args 'name) ""))
+          (define base-url (or (jget args 'base_url) ""))
+          (cond
+            [(not (jtruthy base-url)) (err "base_url is required")]
+            [else
+             (define eid (id8 (uuid4)))
+             (define now (now-stamp))
+             (query-exec conn
+               (string-append "INSERT INTO model_endpoints(id, name, base_url, api_key,"
+                              " is_enabled, created_at, updated_at) VALUES(?,?,?,?,1,?,?)")
+               eid (if (jtruthy name) name base-url) base-url (or (jget args 'api_key) "") now now)
+             (hasheq 'response (format "Added endpoint '~a' (id: ~a)"
+                                       (if (jtruthy name) name base-url) eid)
+                     'exit_code 0)])]
+         [("delete")
+          (define eid (or (jget args 'endpoint_id) ""))
+          (define r (query-maybe-row conn "SELECT name FROM model_endpoints WHERE id = ?" eid))
+          (cond
+            [(not r) (err (format "Endpoint ~a not found" eid))]
+            [else (query-exec conn "DELETE FROM model_endpoints WHERE id = ?" eid)
+                  (hasheq 'response (format "Deleted endpoint '~a'" (sql-or-null (vector-ref r 0)))
+                          'exit_code 0)])]
+         [("enable" "disable")
+          (define eid (or (jget args 'endpoint_id) ""))
+          (define r (query-maybe-row conn "SELECT name FROM model_endpoints WHERE id = ?" eid))
+          (cond
+            [(not r) (err (format "Endpoint ~a not found" eid))]
+            [else
+             (query-exec conn "UPDATE model_endpoints SET is_enabled = ?, updated_at = ? WHERE id = ?"
+                         (if (equal? action "enable") 1 0) (now-stamp) eid)
+             (hasheq 'response (format "Endpoint '~a' ~ad" (sql-or-null (vector-ref r 0)) action)
+                     'exit_code 0)])]
+         [else (err (format "Unknown action: ~a" action))]))]))
+
+;; ---- manage_mcp ----------------------------------------------------------------
+
+;; ---- manage_mcp RCE guard (port of _validate_mcp_command, #4433) -------------
+;; manage_mcp 'add' is model/prompt-injection-reachable: a payload smuggled into
+;; a skill description, memory entry, fetched page, or email body could register
+;; a stdio server running arbitrary code as the app UID (command='sh',
+;; args=['-c','...']). Validate BEFORE any DB write — a rejected registration
+;; leaves no enabled row (which would auto-reconnect on restart) and attempts no
+;; connection. Mirrors _validate_serve_cmd's intent, inverted for the model path:
+;; interpreters/runners are DENIED here even if an operator allowlists them.
+
+(define mcp-denied-commands
+  '("sh" "bash" "zsh" "fish" "dash" "ksh" "csh" "tcsh" "ash" "busybox"
+    "cmd" "command.com" "powershell" "pwsh"
+    "python" "pypy" "node" "nodejs" "deno" "bun" "ruby" "jruby"
+    "perl" "raku" "php" "lua" "luajit" "tclsh" "wish" "expect" "rscript"
+    "groovy" "scala" "elixir" "erl" "iex" "java" "javac" "jshell" "jbang"
+    "kotlin" "kotlinc" "dotnet" "mono" "swift" "osascript" "tsx" "ts-node"
+    "npx" "bunx" "uvx" "pipx" "npm" "pnpm" "yarn" "pip" "uv"
+    "gem" "cargo" "go" "bundle" "poetry" "conda" "mamba" "brew"
+    "apt" "apt-get" "yum" "dnf" "pacman" "apk"
+    "env" "xargs" "nohup" "setsid" "nice" "ionice" "time" "timeout"
+    "watch" "stdbuf" "unbuffer" "script" "ssh" "scp" "sshpass" "sudo"
+    "doas" "su" "make" "cmake" "docker" "podman" "kubectl" "find"
+    "awk" "gawk" "sed" "vi" "vim" "nvim" "emacs" "ed" "tee" "eval"))
+
+(define mcp-code-exec-short-flags '("-c" "-e" "-m"))
+(define mcp-code-exec-long-flags '("--eval" "--exec" "--print" "--module" "--command" "--require"))
+(define mcp-url-schemes '("http://" "https://" "ftp://" "ftps://" "file://" "data:" "jar:" "blob:"))
+(define mcp-shell-metachars (string->list ";|&$`><\n\r"))
+(define mcp-dangerous-env
+  '("LD_PRELOAD" "LD_LIBRARY_PATH" "LD_AUDIT" "DYLD_INSERT_LIBRARIES"
+    "DYLD_LIBRARY_PATH" "DYLD_FRAMEWORK_PATH" "PYTHONPATH" "PYTHONSTARTUP"
+    "PYTHONHOME" "PYTHONEXECUTABLE" "NODE_OPTIONS" "NODE_PATH" "BASH_ENV"
+    "ENV" "SHELLOPTS" "PERL5LIB" "PERL5OPT" "RUBYOPT" "RUBYLIB" "GEM_PATH"
+    "R_PROFILE" "R_HOME" "PATH" "IFS" "PROMPT_COMMAND"))
+
+;; ODYSSEUS_MCP_ALLOWED_COMMANDS (comma-separated), empty by default.
+(define (mcp-allowed-commands)
+  (filter (lambda (c) (not (string=? c "")))
+          (map (lambda (c) (string-downcase (string-trim c)))
+               (string-split (or (getenv "ODYSSEUS_MCP_ALLOWED_COMMANDS") "") "," #:trim? #f))))
+
+;; basename lowercased, with a trailing .exe/.cmd/.bat stripped (rsplit(".",1)[0]).
+(define (mcp-base command)
+  (define b (string-downcase command))
+  (if (or (string-suffix? b ".exe") (string-suffix? b ".cmd") (string-suffix? b ".bat"))
+      (let ([i (for/last ([c (in-string b)] [k (in-naturals)] #:when (char=? c #\.)) k)])
+        (if i (substring b 0 i) b))
+      b))
+
+;; Python truthiness incl. empty dict (Python `if env:` skips {}); jtruthy alone
+;; would treat an empty hasheq as true.
+(define (mcp-falsy? v)
+  (or (not (jtruthy v)) (and (hash? v) (zero? (hash-count v)))))
+
+(define (mcp-validate-args a0)
+  (cond
+    [(or (eq? a0 #f) (eq? a0 'null)) #f]        ; args.get default [] / None → skip
+    [else
+     (define a (if (string? a0)
+                   (with-handlers ([exn:fail? (lambda (_) 'bad)]) (string->jsexpr a0))
+                   a0))
+     (cond
+       [(eq? a 'bad) "args must be a JSON list"]
+       [(not (list? a)) "args must be a list"]
+       [else
+        (for/or ([item (in-list a)])
+          (cond
+            [(not (string? item)) "args must all be strings"]
+            [else
+             (define s (string-trim item))
+             (define low (string-downcase s))
+             (cond
+               [(for/or ([f (in-list mcp-code-exec-short-flags)])
+                  (or (string=? s f) (string-prefix? s f)))
+                (format "arg '~a' is a code-execution flag and is not allowed" item)]
+               [(for/or ([f (in-list mcp-code-exec-long-flags)])
+                  (or (string=? low f) (string-prefix? low (string-append f "="))))
+                (format "arg '~a' is a code-execution flag and is not allowed" item)]
+               [(for/or ([u (in-list mcp-url-schemes)]) (string-prefix? low u))
+                (format "arg '~a' is a remote URL and is not allowed" item)]
+               [(for/or ([ch (in-string item)]) (and (memv ch mcp-shell-metachars) #t))
+                (format "arg '~a' contains shell metacharacters" item)]
+               [else #f])]))])]))
+
+(define (mcp-validate-env e0)
+  (cond
+    [(mcp-falsy? e0) #f]                        ; Python `if env:` → empty skips
+    [else
+     (define e (if (string? e0)
+                   (with-handlers ([exn:fail? (lambda (_) 'bad)]) (string->jsexpr e0))
+                   e0))
+     (cond
+       [(eq? e 'bad) "env must be a JSON object"]
+       [(not (hash? e)) "env must be an object"]
+       [else
+        (for/or ([k (in-hash-keys e)])
+          (define ks (if (symbol? k) (symbol->string k) (format "~a" k)))
+          (and (member (string-upcase (string-trim ks)) mcp-dangerous-env)
+               (format "env var '~a' can inject code into the child process and is not allowed" ks)))])]))
+
+;; Returns an error string to reject, or #f to accept.
+(define (validate-mcp-command command cmd-args env)
+  (cond
+    [(or (not (string? command)) (string=? (string-trim command) ""))
+     "command must be a non-empty string"]
+    [else
+     (define c (string-trim command))
+     (cond
+       [(or (string-contains? c "/") (string-contains? c "\\"))
+        "command must be a bare executable name, not a path"]
+       [(for/or ([ch (in-string c)]) (and (memv ch mcp-shell-metachars) #t))
+        "command contains shell metacharacters"]
+       [else
+        (define base (mcp-base c))
+        (define canon (regexp-replace #px"[-_.]?\\d+(\\.\\d+)*$" base ""))
+        (cond
+          [(or (member base mcp-denied-commands) (member canon mcp-denied-commands))
+           (format (string-append "command '~a' is not allowed on the agent MCP path: "
+                                  "interpreters, runtimes, package runners, and shells can execute "
+                                  "arbitrary code. Register such a server via the admin route instead.") c)]
+          [(not (member base (mcp-allowed-commands)))
+           (format (string-append "command '~a' is not in the MCP allowlist. Add it to "
+                                  "ODYSSEUS_MCP_ALLOWED_COMMANDS if you trust it, or register the "
+                                  "server via the admin route.") c)]
+          [else (or (mcp-validate-args cmd-args) (mcp-validate-env env))])])]))
+
+(define (manage-mcp conn content #:owner [owner #f])
+  (define args (parse-args content))
+  (cond
+    [(eq? args 'bad) (err "Invalid JSON arguments")]
+    [else
+     (define action (or (jget args 'action) "list"))
+     (with-handlers ([exn:fail? (lambda (e) (err (exn-message e)))])
+       (case action
+         ;; no MCP manager in this CLI — Python's list doesn't even hit the DB then
+         [("list") (hasheq 'response "No MCP manager available" 'servers '() 'exit_code 0)]
+         [("add")
+          (define name (or (jget args 'name) ""))
+          (define command (or (jget args 'command) ""))
+          (cond
+            [(or (not (jtruthy name)) (not (jtruthy command)))
+             (err "name and command are required")]
+            [(validate-mcp-command command (jget args 'args) (jget args 'env))
+             => (lambda (verr)
+                  (err (string-append "manage_mcp: refused unsafe server registration: " verr)))]
+            [else
+             (define cmd-args (let ([a (jget args 'args)]) (if (list? a) a (or a '()))))
+             (define env (let ([e (jget args 'env)]) (if (hash? e) e (or e (hasheq)))))
+             (define sid (id8 (uuid4)))
+             (define now (now-stamp))
+             (query-exec conn
+               (string-append "INSERT INTO mcp_servers(id, name, transport, command, args, env,"
+                              " is_enabled, created_at, updated_at) VALUES(?,?,'stdio',?,?,?,1,?,?)")
+               sid name command
+               (if (list? cmd-args) (jsexpr->string cmd-args) cmd-args)
+               (if (hash? env) (jsexpr->string env) env)
+               now now)
+             ;; no manager → no connect attempt → 0 tools (Python's connect-failed path)
+             (hasheq 'response (format "Added MCP server '~a' (0 tools)" name) 'exit_code 0)])]
+         [("delete")
+          (define sid (or (jget args 'server_id) ""))
+          (define r (query-maybe-row conn "SELECT name FROM mcp_servers WHERE id = ?" sid))
+          (cond
+            [(not r) (err (format "Server ~a not found" sid))]
+            [else (query-exec conn "DELETE FROM mcp_servers WHERE id = ?" sid)
+                  (hasheq 'response (format "Deleted MCP server '~a'" (sql-or-null (vector-ref r 0)))
+                          'exit_code 0)])]
+         [("reconnect") (err "MCP manager not available")]
+         [("enable" "disable")
+          (define sid (or (jget args 'server_id) ""))
+          (define r (query-maybe-row conn "SELECT name FROM mcp_servers WHERE id = ?" sid))
+          (cond
+            [(not r) (err (format "Server ~a not found" sid))]
+            [else
+             (query-exec conn "UPDATE mcp_servers SET is_enabled = ?, updated_at = ? WHERE id = ?"
+                         (if (equal? action "enable") 1 0) (now-stamp) sid)
+             (hasheq 'response (format "MCP server '~a' ~ad" (sql-or-null (vector-ref r 0)) action)
+                     'exit_code 0)])]
+         [("list_tools") (hasheq 'response "No MCP manager" 'tools '() 'exit_code 0)]
+         [else (err (format "Unknown action: ~a" action))]))]))
+
+;; ---- manage_webhooks -----------------------------------------------------------
+
+(define allowed-events (list "session.created" "chat.completed" "chat.message" "webhook.test"))
+
+;; validate_events port: comma-split, trim, all must be allowed; rejoin.
+;; Returns the cleaned string or raises exn:fail with Python's message.
+(define (validate-events events-str)
+  (define events (filter (lambda (e) (not (string=? e "")))
+                         (map string-trim (string-split (if (string? events-str) events-str "") ","))))
+  (cond
+    [(null? events) (error 'validate-events "At least one event is required")]
+    [else
+     (define invalid (sort (remove-duplicates (filter (lambda (e) (not (member e allowed-events))) events))
+                           string<?))
+     (unless (null? invalid)
+       (error 'validate-events "Invalid events: ~a. Allowed: ~a"
+              (string-join invalid ", ")
+              (string-join (sort (remove "webhook.test" allowed-events) string<?) ", ")))
+     (string-join events ",")]))
+
+;; ---- private/internal address detection (the SSRF guard) ----------------------
+;; Mirrors webhook_manager._is_private_url: the internal-hostname blocklist +
+;; suffixes are checked before resolving, then private/reserved IPv4/IPv6 ranges
+;; over literal IPs. DNS hostnames are resolved (one address via net/dns vs
+;; Python's every-record — the delivery side re-validates with the full check)
+;; and unresolvable names fail closed.
+
+(define (ipv4-octets s)
+  (define m (regexp-match #px"^([0-9]{1,3})\\.([0-9]{1,3})\\.([0-9]{1,3})\\.([0-9]{1,3})$" s))
+  (and m (let ([os (map string->number (cdr m))]) (and (andmap (lambda (o) (<= o 255)) os) os))))
+
+(define (ipv4-private? os)
+  (define a (car os)) (define b (cadr os)) (define c (caddr os))
+  (or (= a 0) (= a 10) (= a 127)                               ; unspecified/private/loopback
+      (and (= a 172) (<= 16 b 31)) (and (= a 192) (= b 168))   ; private
+      (and (= a 169) (= b 254))                                ; link-local
+      (and (= a 100) (<= 64 b 127))                            ; CGNAT 100.64.0.0/10
+      ;; reserved/doc ranges Python's ipaddress.is_private also rejects
+      (and (= a 192) (= b 0) (= c 0))                          ; 192.0.0.0/24 IETF protocol
+      (and (= a 192) (= b 0) (= c 2))                          ; 192.0.2.0/24 TEST-NET-1
+      (and (= a 198) (<= 18 b 19))                             ; 198.18.0.0/15 benchmarking
+      (and (= a 198) (= b 51) (= c 100))                       ; 198.51.100.0/24 TEST-NET-2
+      (and (= a 203) (= b 0) (= c 113))                        ; 203.0.113.0/24 TEST-NET-3
+      (>= a 224)))                                             ; multicast 224/4 + reserved 240/4
+
+;; parse an IPv6 literal into 8 16-bit groups, or #f. Handles :: expansion and
+;; a trailing IPv4-mapped dotted quad.
+(define (ipv6-groups s0)
+  (define s (string-downcase s0))
+  (define (groups part) (if (string=? part "") '() (string-split part ":" #:trim? #f)))
+  (define (parse-group g) (and (regexp-match? #px"^[0-9a-f]{1,4}$" g) (string->number g 16)))
+  (define (expand-tail gs)            ; trailing dotted quad → two groups
+    (cond [(null? gs) '()]
+          [(ipv4-octets (last gs))
+           => (lambda (os) (append (drop-right gs 1)
+                                   (list (format "~x" (+ (* 256 (car os)) (cadr os)))
+                                         (format "~x" (+ (* 256 (caddr os)) (cadddr os))))))]
+          [else gs]))
+  (define halves (regexp-split #rx"::" s))
+  (cond
+    [(> (length halves) 2) #f]
+    [(= (length halves) 2)
+     (define l (groups (car halves))) (define r (expand-tail (groups (cadr halves))))
+     (define pad (- 8 (+ (length l) (length r))))
+     (and (>= pad 0)
+          (let ([all (append l (make-list pad "0") r)])
+            (let ([ns (map parse-group all)]) (and (andmap values ns) ns))))]
+    [else
+     (define all (expand-tail (groups s)))
+     (and (= (length all) 8)
+          (let ([ns (map parse-group all)]) (and (andmap values ns) ns)))]))
+
+(define (ipv6-private? gs)
+  (define g0 (car gs))
+  (cond
+    ;; IPv4-mapped ::ffff:a.b.c.d → judge the embedded IPv4
+    [(and (andmap zero? (take gs 5)) (= (list-ref gs 5) #xffff))
+     (ipv4-private? (list (quotient (list-ref gs 6) 256) (remainder (list-ref gs 6) 256)
+                          (quotient (list-ref gs 7) 256) (remainder (list-ref gs 7) 256)))]
+    [(andmap zero? gs) #t]                                     ; ::  unspecified
+    [(and (andmap zero? (take gs 7)) (= (last gs) 1)) #t]      ; ::1 loopback
+    [(= (arithmetic-shift g0 -9) #b1111110) #t]                ; fc00::/7 ULA
+    [(= (arithmetic-shift g0 -6) #b1111111010) #t]             ; fe80::/10 link-local
+    [(= (arithmetic-shift g0 -8) #xff) #t]                     ; ff00::/8 multicast
+    [else #f]))
+
+;; internal hostnames/suffixes Python blocks BEFORE resolving (the resolver may
+;; hand back a public A record for a name meant to be internal — DNS rebinding)
+(define internal-hosts (list "localhost" "0.0.0.0" "metadata.google.internal" "metadata"))
+(define internal-suffixes (list ".local" ".internal" ".lan" ".intranet" ".localhost"))
+
+(define (host-private? host)
+  (define h (string-downcase host))
+  (cond
+    [(member h internal-hosts) #t]
+    [(ormap (lambda (sfx) (string-suffix? h sfx)) internal-suffixes) #t]
+    [(ipv4-octets host) => ipv4-private?]
+    [(ipv6-groups host) => ipv6-private?]
+    [else                                  ; DNS name — resolve; fail closed
+     (with-handlers ([exn:fail? (lambda (_) #t)])
+       (define ip (dns-get-address (dns-find-nameserver) host))
+       (cond [(ipv4-octets ip) => ipv4-private?]
+             [(ipv6-groups ip) => ipv6-private?]
+             [else #t]))]))
+
+;; validate_webhook_url port. Returns the trimmed URL or raises with Python's message.
+(define (validate-webhook-url url0)
+  (define url (string-trim (if (string? url0) url0 "")))
+  (when (> (string-length url) 2048) (error 'validate-webhook-url "URL too long (max 2048 characters)"))
+  (define m (regexp-match #px"^([a-zA-Z][a-zA-Z0-9+.-]*)://(?:[^@/]*@)?(\\[[^]]+\\]|[^:/?#]*)" url))
+  (define scheme (and m (string-downcase (cadr m))))
+  (define host0 (and m (caddr m)))
+  (define host (and host0 (if (and (string-prefix? host0 "[") (string-suffix? host0 "]"))
+                              (substring host0 1 (sub1 (string-length host0)))
+                              host0)))
+  (unless (member scheme '("http" "https")) (error 'validate-webhook-url "URL must use http or https"))
+  (unless (and host (not (string=? host ""))) (error 'validate-webhook-url "URL must have a hostname"))
+  (when (host-private? host)
+    (error 'validate-webhook-url "URL must not point to private/internal addresses"))
+  url)
+
+(define (manage-webhooks conn content #:owner [owner #f])
+  (define args (parse-args content))
+  (cond
+    [(eq? args 'bad) (err "Invalid JSON arguments")]
+    [else
+     (define action (or (jget args 'action) "list"))
+     (with-handlers ([exn:fail? (lambda (e) (err (exn-message e)))])
+       (case action
+         [("list")
+          (define items
+            (for/list ([r (in-list (query-rows conn
+                            "SELECT id, name, url, events, is_active FROM webhooks"))])
+              (hasheq 'id (vector-ref r 0) 'name (sql-or-null (vector-ref r 1))
+                      'url (sql-or-null (vector-ref r 2)) 'events (sql-or-null (vector-ref r 3))
+                      'is_active (sql->bool (vector-ref r 4)))))
+          (hasheq 'response (format "~a webhooks" (length items)) 'webhooks items 'exit_code 0)]
+         [("add")
+          (define name (or (jget args 'name) ""))
+          (define url0 (or (jget args 'url) ""))
+          (cond
+            [(not (jtruthy url0)) (err "url is required")]
+            [else
+             ;; validation errors carry Python's ValueError text
+             (define-values (url events ok?)
+               (with-handlers ([exn:fail? (lambda (e) (values (exn-message e) #f #f))])
+                 (values (validate-webhook-url url0)
+                         (validate-events (or (jget args 'events) "chat.completed"))
+                         #t)))
+             (cond
+               [(not ok?) (err (strip-who url))]   ; url holds the validation error text
+               [else
+                (define wid (id8 (uuid4)))
+                (define now (now-stamp))
+                (query-exec conn
+                  (string-append "INSERT INTO webhooks(id, name, url, events, is_active,"
+                                 " created_at, updated_at) VALUES(?,?,?,?,1,?,?)")
+                  wid (if (jtruthy name) name url) url events now now)
+                (hasheq 'response (format "Added webhook '~a'" (if (jtruthy name) name url))
+                        'exit_code 0)])])]
+         [("delete")
+          (define wid (or (jget args 'webhook_id) ""))
+          (define r (query-maybe-row conn "SELECT name FROM webhooks WHERE id = ?" wid))
+          (cond
+            [(not r) (err (format "Webhook ~a not found" wid))]
+            [else (query-exec conn "DELETE FROM webhooks WHERE id = ?" wid)
+                  (hasheq 'response (format "Deleted webhook '~a'" (sql-or-null (vector-ref r 0)))
+                          'exit_code 0)])]
+         [("enable" "disable")
+          (define wid (or (jget args 'webhook_id) ""))
+          (define r (query-maybe-row conn "SELECT name FROM webhooks WHERE id = ?" wid))
+          (cond
+            [(not r) (err (format "Webhook ~a not found" wid))]
+            [else
+             (query-exec conn "UPDATE webhooks SET is_active = ?, updated_at = ? WHERE id = ?"
+                         (if (equal? action "enable") 1 0) (now-stamp) wid)
+             (hasheq 'response (format "Webhook '~a' ~ad" (sql-or-null (vector-ref r 0)) action)
+                     'exit_code 0)])]
+         [else (err (format "Unknown action: ~a" action))]))]))
+
+;; racket error messages carry a "who: " prefix; Python's ValueError text doesn't
+(define (strip-who msg)
+  (define m (regexp-match #px"^[^\\s:]+: (.*)$" msg))
+  (if m (cadr m) msg))
+
+;; ---- manage_tokens -------------------------------------------------------------
+
+(define (manage-tokens conn content #:owner [owner #f])
+  (define args (parse-args content))
+  (cond
+    [(eq? args 'bad) (err "Invalid JSON arguments")]
+    [else
+     (define action (or (jget args 'action) "list"))
+     (with-handlers ([exn:fail? (lambda (e) (err (exn-message e)))])
+       (case action
+         [("list")
+          (define items
+            (for/list ([r (in-list (query-rows conn
+                            "SELECT id, name, token_prefix, is_active FROM api_tokens"))])
+              (hasheq 'id (vector-ref r 0) 'name (sql-or-null (vector-ref r 1))
+                      'token_prefix (string-append (or (sql-or-empty (vector-ref r 2)) "") "...")
+                      'is_active (sql->bool (vector-ref r 3)))))
+          (hasheq 'response (format "~a API tokens" (length items)) 'tokens items 'exit_code 0)]
+         [("create")
+          ;; bcrypt-hashed tokens are how app.py authenticates; without bcrypt a
+          ;; token minted here would never verify. Refuse with directions.
+          (err (string-append "Token creation requires bcrypt hashing, which this adapter"
+                              " doesn't have — create tokens via the web UI (Settings → API"
+                              " Tokens) or the Python API"))]
+         [("delete")
+          (define tid (or (jget args 'token_id) ""))
+          (define r (query-maybe-row conn "SELECT name FROM api_tokens WHERE id = ?" tid))
+          (cond
+            [(not r) (err (format "Token ~a not found" tid))]
+            [else (query-exec conn "DELETE FROM api_tokens WHERE id = ?" tid)
+                  (hasheq 'response (format "Deleted token '~a'" (sql-or-null (vector-ref r 0)))
+                          'exit_code 0)])]
+         [else (err (format "Unknown action: ~a" action))]))]))
