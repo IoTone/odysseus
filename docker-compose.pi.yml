@@ -1,0 +1,69 @@
+# Minimal single-service profile for ARM64 small hosts.
+# Baseline: Raspberry Pi 5 (8 GB).  Target: MTK Genio 720 (8 GB).
+#
+# Runs ONLY the odysseus app. The optional services from docker-compose.yml
+# (chromadb / searxng / ntfy) are omitted on purpose — the app degrades
+# gracefully without them: semantic memory falls back to keyword search, web
+# search and push notifications are simply unavailable. Local ONNX embeddings
+# (FastEmbed) still run in-process on CPU, so RAG-style features keep working.
+#
+# The LLM is reached over HTTP — either a small model served on THIS box, or
+# offloaded to a LAN GPU host / hosted API (see docs/small-host.md for both).
+#
+# USAGE (standalone — NOT layered over docker-compose.yml):
+#   docker compose -f docker-compose.pi.yml up -d --build
+#   docker compose -f docker-compose.pi.yml logs odysseus | grep -i password
+#   # open http://127.0.0.1:7000 ; then:
+#   docker compose -f docker-compose.pi.yml down
+#
+# For the FULL stack on an SBC, the normal docker-compose.yml already runs on
+# arm64 — just pick a small model. Apple `container` is macOS-only; on Linux
+# SBCs use Docker or Podman.
+
+services:
+  odysseus:
+    build: .
+    # Prefer a prebuilt multi-arch image over building on the SBC if you have one:
+    # image: ghcr.io/<org>/odysseus:latest
+    ports:
+      - "${APP_BIND:-127.0.0.1}:${APP_PORT:-7000}:7000"
+    volumes:
+      - ${APP_DATA_DIR:-./data}:/app/data
+      - ${APP_LOGS_DIR:-./logs}:/app/logs
+    extra_hosts:
+      # Lets the container reach a model server running on the SBC host itself
+      # (e.g. `OLLAMA_HOST=0.0.0.0 ollama serve`) at host.docker.internal:11434.
+      - "host.docker.internal:host-gateway"
+    environment:
+      # ── LLM endpoint ──────────────────────────────────────────────────────
+      # A) Small model served by ollama on THIS host (default). Start it with
+      #    `OLLAMA_HOST=0.0.0.0 ollama serve` and pull e.g. qwen2.5:3b.
+      - LLM_HOST=${LLM_HOST:-host.docker.internal}
+      - OLLAMA_BASE_URL=${OLLAMA_BASE_URL:-http://host.docker.internal:11434/v1}
+      # B) OFFLOAD to a LAN GPU box / hosted API instead (recommended for full
+      #    agent quality). Set these to override, e.g. in a .env next to this file:
+      #      LLM_HOST=192.168.1.50
+      #      OLLAMA_BASE_URL=http://192.168.1.50:11434/v1
+      #
+      # ── App basics ────────────────────────────────────────────────────────
+      - DATABASE_URL=${DATABASE_URL:-sqlite:///./data/app.db}
+      - AUTH_ENABLED=${AUTH_ENABLED:-true}
+      - ODYSSEUS_ADMIN_USER=${ODYSSEUS_ADMIN_USER:-admin}
+      - ODYSSEUS_ADMIN_PASSWORD=${ODYSSEUS_ADMIN_PASSWORD:-}
+      - ALLOWED_ORIGINS=${ALLOWED_ORIGINS:-http://localhost,http://127.0.0.1}
+      - SECURE_COOKIES=${SECURE_COOKIES:-false}
+      # In-process CPU embeddings — no chromadb required for these.
+      - FASTEMBED_MODEL=${FASTEMBED_MODEL:-sentence-transformers/all-MiniLM-L6-v2}
+      # NOTE: chromadb/searxng are intentionally NOT started here. The app's
+      # defaults (CHROMADB_HOST=localhost, SEARXNG_INSTANCE=localhost:8080) will
+      # simply find nothing and fall back — a little log noise on first use, no
+      # crash. To silence a specific integration, point its var somewhere real.
+      - PUID=${PUID:-1000}
+      - PGID=${PGID:-1000}
+    # Keep the app comfortably bounded so a small local model has RAM to work in
+    # on an 8 GB board. Raise/lower via override if you offload the model.
+    deploy:
+      resources:
+        limits:
+          memory: 1500m
+    restart: unless-stopped
