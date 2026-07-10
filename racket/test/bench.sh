@@ -24,7 +24,7 @@ export PATH="$HOME/racket/bin:$PATH"
 command -v racket >/dev/null || { echo "racket not on PATH"; exit 1; }
 
 now(){ date +%s.%N; }
-elapsed(){ awk "BEGIN{printf \"%.3f\", $2-$1}"; }
+elapsed(){ awk -v a="$1" -v b="$2" 'BEGIN{printf "%.3f", b-a}'; }
 
 echo "================ Odysseus agent — perf baseline ================"
 echo "## A. host"
@@ -41,10 +41,10 @@ echo "## B. racket startup (5 runs)"
 b_sum=0; b_min=99
 for i in 1 2 3 4 5; do
   s=$(now); racket -e '(void)' >/dev/null 2>&1; e=$(now)
-  d=$(elapsed "$s" "$e"); b_sum=$(awk "BEGIN{print $b_sum+$d}")
-  b_min=$(awk "BEGIN{print ($d<$b_min)?$d:$b_min}")
+  d=$(elapsed "$s" "$e"); b_sum=$(awk -v s="$b_sum" -v d="$d" 'BEGIN{print s+d}')
+  b_min=$(awk -v d="$d" -v m="$b_min" 'BEGIN{print (d<m)?d:m}')
 done
-echo "  cold start: min ${b_min}s  avg $(awk "BEGIN{printf \"%.3f\", $b_sum/5}")s   (per CLI invocation)"
+echo "  cold start: min ${b_min}s  avg $(awk -v s="$b_sum" 'BEGIN{printf "%.3f", s/5}')s   (per CLI invocation)"
 
 echo "## C. agent round vs mock LLM (model factored out; 3 runs, --tools manage_notes)"
 WORK="$(mktemp -d)"; trap 'rm -rf "$WORK"; [ -n "${MP:-}" ] && kill "$MP" 2>/dev/null' EXIT
@@ -58,12 +58,12 @@ for i in 1 2 3; do
   s=$(now)
   LLM_ENDPOINT=http://127.0.0.1:8930/v1/chat/completions LLM_MODEL=mock \
     racket cli/odysseus-agent.rkt "bench" --owner alice --tools manage_notes --max-rounds 4 >/dev/null 2>&1
-  e=$(now); d=$(elapsed "$s" "$e"); c_sum=$(awk "BEGIN{print $c_sum+$d}")
-  c_min=$(awk "BEGIN{print ($d<$c_min)?$d:$c_min}")
+  e=$(now); d=$(elapsed "$s" "$e"); c_sum=$(awk -v s="$c_sum" -v d="$d" 'BEGIN{print s+d}')
+  c_min=$(awk -v d="$d" -v m="$c_min" 'BEGIN{print (d<m)?d:m}')
 done
-c_avg=$(awk "BEGIN{printf \"%.3f\", $c_sum/3}")
+c_avg=$(awk -v s="$c_sum" 'BEGIN{printf "%.3f", s/3}')
 echo "  full run  : min ${c_min}s  avg ${c_avg}s   (2 LLM round-trips + tool exec + DB, incl. startup)"
-echo "  loop-only : ~$(awk "BEGIN{printf \"%.3f\", $c_avg-$b_min}")s   (full run minus one racket cold start)"
+echo "  loop-only : ~$(awk -v a="$c_avg" -v b="$b_min" 'BEGIN{printf "%.3f", a-b}')s   (full run minus one racket cold start)"
 kill "$MP" 2>/dev/null; MP=""
 
 echo "## D. LLM inference (ollama /api/generate, stream off)"
