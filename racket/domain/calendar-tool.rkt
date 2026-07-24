@@ -267,8 +267,11 @@
                  " e.all_day, e.is_utc, e.event_type, e.importance, e.calendar_id, c.name"))
 
 (define (cal-list-events conn args owner now-local now-utc)
-  (define start-raw (first-nonempty args 'start 'start_date 'range_start 'from 'dtstart 'since))
-  (define end-raw (first-nonempty args 'end 'end_date 'range_end 'to 'dtend 'until))
+  (define start-raw (first-nonempty args 'start 'start_time 'start_date 'range_start 'from 'dtstart 'since))
+  (define end-raw (first-nonempty args 'end 'end_time 'end_date 'range_end 'to 'dtend 'until))
+  ;; A vague natural-language range (query/date_range/range) without explicit
+  ;; start+end can't be resolved here — ask the model to resolve it and retry.
+  (define query-raw (or (jget args 'query) (jget args 'date_range) (jget args 'range)))
   (define-values (start-dt end-dt-raw parse-err)
     (with-handlers ([exn:fail? (lambda (e) (values #f #f (strip-who (exn-message e))))])
       (define s (if start-raw (parse-dt (format "~a" start-raw) #:now now-local)
@@ -278,6 +281,10 @@
   ;; (start==end) query returns that whole day instead of nothing.
   (define end-dt (and (not parse-err) (if (<= end-dt-raw start-dt) (+ start-dt DAY) end-dt-raw)))
   (cond
+    [(and (jtruthy query-raw) (or (not start-raw) (not end-raw)))
+     (err (format (string-append "list_events needs explicit start/end ISO datetimes; "
+                                 "resolve the requested range ('~a') and call manage_calendar again.")
+                  query-raw))]
     [parse-err (err (format "Invalid date format: ~a" parse-err))]
     [else
      (define cal-filter (jget args 'calendar))
@@ -496,8 +503,15 @@
              (unless (eq? tag 'null)
                (add! "event_type" (if (jtruthy tag) tag sql-null))))
            (when (given? 'importance) (add! "importance" (hash-ref args 'importance)))
-           ;; (Python's update_event never applies rrule, despite the schema
-           ;;  advertising it — kept bug-compatible.)
+           ;; rrule on update: an explicit rrule (present, even "") sets/clears
+           ;; it; otherwise repeat ∈ {none,no,off,false,single} clears it to a
+           ;; single occurrence. (Was previously a bug-compatible no-op.)
+           (cond
+             [(given? 'rrule) (add! "rrule" (let ([r (hash-ref args 'rrule)]) (if (jtruthy r) r "")))]
+             [(member (let ([r (jget args 'repeat)])
+                        (if (string? r) (string-downcase (string-trim r)) ""))
+                      '("none" "no" "off" "false" "single"))
+              (add! "rrule" "")])
            (add! "updated_at" (now-stamp))
            (apply query-exec conn
                   (string-append "UPDATE calendar_events SET "

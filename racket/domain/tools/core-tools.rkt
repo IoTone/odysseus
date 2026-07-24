@@ -91,7 +91,7 @@
   (output_target string #:optional #:description "Where results go. Defaults to 'session' (results land in a dedicated chat session the user reads) — this is the right choice for 'summarize for me' / 'send to me'. Do NOT go hunting for the user's email address; only use an email MCP tool name here if the user explicitly asked to be emailed AND an address is already known."))
 
 (define-tool manage_calendar
-  #:description "Manage calendar events: list events in a date range, create, update, delete. Each event can carry a tag/category (event_type) and importance level. Resolve relative dates like today/tomorrow against the 'Current date and time' system context, then pass ISO 8601 datetimes in the user's local wall time; for all-day events set all_day=true and pass YYYY-MM-DD. For event reminders/alarms, pass reminder_minutes; the tool creates the Odysseus note reminder, so do not also call manage_notes for the same reminder."
+  #:description "Manage calendar events: list events in a date range, create, update, delete. Each event can carry a tag/category (event_type) and importance level. Resolve relative dates like today/tomorrow against the 'Current date and time' system context, then pass ISO 8601 datetimes in the user's local wall time; for all-day events set all_day=true and pass YYYY-MM-DD. For event reminders/alarms, pass reminder_minutes; the tool creates the Odysseus note reminder, so do not also call manage_notes for the same reminder. Do not set rrule for single-occurrence requests such as 'next Wednesday only'; use rrule only when the user explicitly wants recurrence."
   (action string #:enum ("list_events" "create_event" "update_event" "delete_event" "list_calendars")
           #:description "Action to perform")
   (summary string #:optional #:description "Event title (for create/update)")
@@ -103,13 +103,13 @@
   (uid string #:optional #:description "Event UID (for update/delete)")
   (calendar_href string #:optional #:description "Specific calendar URL (optional; defaults to first calendar)")
   (calendar string #:optional #:description "Filter list_events by calendar name or href")
-  (start string #:optional #:description "list_events range start (ISO datetime); defaults to today. Prefer start; backend also accepts start_date, range_start, from, dtstart, since.")
-  (end string #:optional #:description "list_events range end (ISO datetime); defaults to +14 days. Prefer end; backend also accepts end_date, range_end, to, dtend, until.")
+  (start string #:optional #:description "list_events range start (ISO datetime). Use this for month/week requests after resolving the date range; do not pass a loose query string. Prefer start; backend also accepts start_time, start_date, range_start, from, dtstart, since.")
+  (end string #:optional #:description "list_events range end (ISO datetime). Use this for month/week requests after resolving the date range; defaults to +14 days only when no range is requested. Prefer end; backend also accepts end_time, end_date, range_end, to, dtend, until.")
   (event_type string #:optional #:description "Tag / category for the event. Common values: work, personal, health, travel, meal, social, admin, other. Aliases accepted: tag, category, type.")
   (importance string #:optional #:enum ("low" "normal" "high" "critical")
               #:description "Priority level (defaults to 'normal')")
   (reminder_minutes integer #:optional #:description "For create_event: create an Odysseus reminder this many minutes before the event, e.g. 5 for 'reminder 5 min before'.")
-  (rrule string #:optional #:description "Recurrence rule in iCalendar RRULE format, e.g. 'FREQ=WEEKLY;BYDAY=MO' for weekly on Monday. Use with create_event or update_event."))
+  (rrule string #:optional #:description "Recurrence rule in iCalendar RRULE format, e.g. 'FREQ=WEEKLY;BYDAY=MO' for weekly on Monday. Use with create_event or update_event. For update_event, pass an explicit empty string to remove recurrence and make the event single-occurrence."))
 
 (define-tool manage_notes
   #:description "Manage notes and checklists (Google Keep-style): list, view, add, update, delete, toggle_item. Use list/search to find candidate notes, then view with the note id when you need the full body. IMPORTANT: For to-do lists / checklists, set note_type='checklist' and pass the items as the `checklist_items` array — do NOT serialize them into `content` as plain text. For freeform notes, use note_type='note' and put the body in `content`. `due_date` accepts natural language like 'tomorrow at 9am' (parsed in the user's timezone) and fires a notification — do not also create a calendar event for the same reminder."

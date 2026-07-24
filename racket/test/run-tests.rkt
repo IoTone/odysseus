@@ -876,6 +876,25 @@
       (check-equal? (hash-ref batch 'created_count) 2)
       (check-equal? (hash-ref batch 'failed_count) 0)
       (check-true (string-prefix? (hash-ref batch 'response) "Created 2 event(s):"))
+      ;; #4 rrule on update: repeat∈{none,no,off,false,single} OR rrule="" clears;
+      ;; an explicit rrule value sets it (was a bug-compatible no-op before).
+      (define rr (run "{\"action\":\"create_event\",\"summary\":\"Standup\",\"dtstart\":\"2026-06-13T09:00:00\",\"rrule\":\"FREQ=DAILY\"}"))
+      (define ruid (hash-ref rr 'uid))
+      (check-equal? (query-value c "SELECT rrule FROM calendar_events WHERE uid = ?" ruid) "FREQ=DAILY")
+      (run (jsexpr->string (hasheq 'action "update_event" 'uid ruid 'repeat "single")))
+      (check-equal? (query-value c "SELECT rrule FROM calendar_events WHERE uid = ?" ruid) "")  ; repeat=single clears
+      (run (jsexpr->string (hasheq 'action "update_event" 'uid ruid 'rrule "FREQ=WEEKLY")))
+      (check-equal? (query-value c "SELECT rrule FROM calendar_events WHERE uid = ?" ruid) "FREQ=WEEKLY")  ; explicit sets
+      (run (jsexpr->string (hasheq 'action "update_event" 'uid ruid 'rrule "")))
+      (check-equal? (query-value c "SELECT rrule FROM calendar_events WHERE uid = ?" ruid) "")  ; empty string clears
+      ;; #4 start_time/end_time aliases resolve the list window
+      (check-true (string-contains?
+                    (hash-ref (run "{\"action\":\"list_events\",\"start_time\":\"2026-06-13\",\"end_time\":\"2026-06-14\"}") 'response)
+                    "Standup"))
+      ;; #4 a vague NL range (query/date_range/range) without explicit start+end is rejected
+      (check-true (string-prefix?
+                    (hash-ref (run "{\"action\":\"list_events\",\"query\":\"next week\"}") 'error)
+                    "list_events needs explicit start/end ISO datetimes"))
       (disconnect c))
 
     (test-case "review regressions — Python-truthiness & fidelity fixes"
