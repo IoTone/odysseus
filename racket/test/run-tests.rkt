@@ -550,6 +550,15 @@
       (check-equal? (hash-ref (run (jsexpr->string (hasheq 'action "delete" 'task_id (hash-ref rb 'task_id)))
                                    #:owner "alice") 'error)
                     "Access denied")
+      ;; #5264 regression: a scoped caller must fail CLOSED against an owner-less
+      ;; (NULL owner) row — tid was created with owner=#f. Pre-fix this leaked
+      ;; cross-tenant edit/run of unowned tasks.
+      (check-equal? (hash-ref (run (jsexpr->string (hasheq 'action "edit" 'task_id tid 'name "pwn"))
+                                   #:owner "alice") 'error)
+                    "Access denied")
+      (check-equal? (hash-ref (run (jsexpr->string (hasheq 'action "run" 'task_id tid))
+                                   #:owner "alice") 'error)
+                    "Access denied")
       (check-equal? (hash-ref (run "{\"action\":\"delete\"}") 'error) "task_id is required for delete")
       (check-equal? (hash-ref (run (jsexpr->string (hasheq 'action "delete" 'task_id tid))) 'response)
                     "Deleted task 'Digest'")

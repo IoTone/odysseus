@@ -96,8 +96,11 @@
                              " scheduled_time, scheduled_day FROM scheduled_tasks WHERE id = ?")
               task-id))
   (cond [(not r) #f]
-        [(and (jtruthy owner) (jtruthy (col (vector-ref r 1)))
-              (not (equal? (vector-ref r 1) owner)))
+        ;; Fail CLOSED on owner-less rows (#5264): if the caller is scoped to an
+        ;; owner, any task whose owner != caller — INCLUDING a NULL/owner-less
+        ;; row — is forbidden. The old middle term `(jtruthy (col …))` let a
+        ;; caller edit/run another tenant's owner-less scheduled task.
+        [(and (jtruthy owner) (not (equal? (vector-ref r 1) owner)))
          'forbidden]
         [else r]))
 
