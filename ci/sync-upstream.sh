@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # ci/sync-upstream.sh — nightly upstream-drift detector for the Racket port.
 #
-# Watches the TRUE upstream project (pewdiepie-archdaemon/odysseus) — NOT our own
+# Watches the TRUE upstream project (odysseus-dev/odysseus, formerly under the
+# pewdiepie-archdaemon org — that URL now just redirects here) — NOT our own
 # IoTone fork's `dev`, which is fed *from* racket-port and so can never show
 # drift. Keeps `racket-port` honest against a moving upstream without a human
 # babysitting every merge.
@@ -28,12 +29,12 @@
 #
 # Run locally any time:   nix develop --command bash ci/sync-upstream.sh
 # Overrides:
-#   UPSTREAM_URL=https://github.com/pewdiepie-archdaemon/odysseus.git
+#   UPSTREAM_URL=https://github.com/odysseus-dev/odysseus.git
 #   UPSTREAM_BRANCH=dev   PORT_REMOTE=origin   PORT_BRANCH=racket-port
 set -uo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"; cd "$ROOT"
-UPSTREAM_URL="${UPSTREAM_URL:-https://github.com/pewdiepie-archdaemon/odysseus.git}"
+UPSTREAM_URL="${UPSTREAM_URL:-https://github.com/odysseus-dev/odysseus.git}"
 UPSTREAM_BRANCH="${UPSTREAM_BRANCH:-dev}"
 PORT_REMOTE="${PORT_REMOTE:-origin}"
 PORT_BRANCH="${PORT_BRANCH:-racket-port}"
