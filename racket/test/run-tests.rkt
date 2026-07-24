@@ -454,6 +454,17 @@
                     (format "- [~a] **Groceries** [PINNED] [checklist]" (substring nid 0 8))))
       (check-true (string-contains? listing "  [ ] 0: milk"))
       (check-true (string-contains? listing "  [x] 1: eggs"))
+      ;; search: substring over title/content/label/items (query|text|title|content)
+      (check-true (string-contains? (hash-ref (run "{\"action\":\"search\",\"query\":\"milk\"}") 'results)
+                                    "**Groceries**"))
+      (check-equal? (hash-ref (run "{\"action\":\"search\",\"query\":\"zzznope\"}") 'response)
+                    "No notes found.")
+      ;; view: one note by id prefix, rendered like a one-row list
+      (check-true (string-contains?
+                    (hash-ref (run (jsexpr->string (hasheq 'action "view" 'id (substring nid 0 8)))) 'results)
+                    "**Groceries**"))
+      (check-equal? (hash-ref (run "{\"action\":\"view\",\"id\":\"nope404\"}") 'error)
+                    "Note 'nope404' not found")
       ;; toggle by 8-char id prefix
       (define r2 (run (jsexpr->string (hasheq 'action "toggle_item" 'id (substring nid 0 8) 'index 0))))
       (check-equal? (hash-ref r2 'response) "Item 'milk' marked done")

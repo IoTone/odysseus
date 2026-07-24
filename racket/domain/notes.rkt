@@ -182,25 +182,70 @@
      (define action (hash-ref action-aliases action0 action0))
      (with-handlers ([exn:fail? (lambda (e) (err (exn-message e)))])
        (case action
-         [("list")        (notes-tool-list conn args owner)]
-         [("add")         (notes-tool-add conn args owner)]
-         [("update")      (notes-tool-update conn args owner)]
-         [("delete")      (notes-tool-delete conn args owner)]
-         [("toggle_item") (notes-tool-toggle conn args owner)]
-         [else (err (format "Unknown action: ~a. Use list/add/update/delete/toggle_item" action))]))]))
+         [("list")            (notes-tool-list conn args owner)]
+         [("search" "find")   (notes-tool-search conn args owner)]
+         [("view")            (notes-tool-view conn args owner)]
+         [("add")             (notes-tool-add conn args owner)]
+         [("update")          (notes-tool-update conn args owner)]
+         [("delete")          (notes-tool-delete conn args owner)]
+         [("toggle_item")     (notes-tool-toggle conn args owner)]
+         [else (err (format "Unknown action: ~a. Use list/search/view/add/update/delete/toggle_item" action))]))]))
 
-(define (notes-tool-list conn args owner)
+;; shared by list/search: the owner+label+archived-filtered rows, pinned first.
+(define (notes-fetch-rows conn args owner)
   (define clauses (append '("archived = ?")
                           (if owner '("owner = ?") '())
                           (if (jtruthy (jget args 'label)) '("label = ?") '())))
   (define params (append (list (b->i (jget args 'archived)))
                          (if owner (list owner) '())
                          (if (jtruthy (jget args 'label)) (list (jget args 'label)) '())))
-  (define rows (apply query-rows conn
-                      (string-append "SELECT id, title, content, items, note_type, label, pinned"
-                                     " FROM notes WHERE " (string-join clauses " AND ")
-                                     " ORDER BY pinned DESC, updated_at DESC")
-                      params))
+  (apply query-rows conn
+         (string-append "SELECT id, title, content, items, note_type, label, pinned"
+                        " FROM notes WHERE " (string-join clauses " AND ")
+                        " ORDER BY pinned DESC, updated_at DESC")
+         params))
+
+(define (notes-tool-list conn args owner)
+  (notes-render (notes-fetch-rows conn args owner)))
+
+;; search/find: same rows as list, then substring-filter on a lowercased
+;; haystack of title+content+label+items (query from query|text|title|content).
+(define (notes-tool-search conn args owner)
+  (define rows (notes-fetch-rows conn args owner))
+  (define q (string-downcase (string-trim
+             (let ([v (or (jget args 'query) (jget args 'text) (jget args 'title)
+                          (jget args 'content) "")])
+               (if (string? v) v "")))))
+  (notes-render
+   (if (string=? q "")
+       rows
+       (filter (lambda (r)
+                 (string-contains?
+                  (string-downcase (string-join
+                   (list (sql-or-empty (vector-ref r 1))    ; title
+                         (sql-or-empty (vector-ref r 2))    ; content
+                         (sql-or-empty (vector-ref r 5))    ; label
+                         (sql-or-empty (vector-ref r 3)))   ; items
+                   " ")) q))
+               rows))))
+
+;; view: one note by id-prefix, rendered like a one-row list. find-note is
+;; owner-scoped so #f = "not found", 'forbidden = someone else's ("Note not found").
+(define (notes-tool-view conn args owner)
+  (define note-id (jget args 'id))
+  (define n (find-note conn note-id owner))
+  (cond
+    [(not n) (err (format "Note '~a' not found" (if (jtruthy note-id) note-id "")))]
+    [(eq? n 'forbidden) (err "Note not found")]
+    [else
+     (notes-render
+      (let ([full (query-maybe-row conn
+                    (string-append "SELECT id, title, content, items, note_type, label, pinned"
+                                   " FROM notes WHERE id = ? LIMIT 1")
+                    (vector-ref n 0))])
+        (if full (list full) '())))]))
+
+(define (notes-render rows)
   (cond
     [(null? rows) (hasheq 'response "No notes found." 'exit_code 0)]
     [else

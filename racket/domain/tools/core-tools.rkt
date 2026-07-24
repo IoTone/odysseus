@@ -112,9 +112,10 @@
   (rrule string #:optional #:description "Recurrence rule in iCalendar RRULE format, e.g. 'FREQ=WEEKLY;BYDAY=MO' for weekly on Monday. Use with create_event or update_event."))
 
 (define-tool manage_notes
-  #:description "Manage notes and checklists (Google Keep-style): list, add, update, delete, toggle_item. IMPORTANT: For to-do lists / checklists, set note_type='checklist' and pass the items as the `checklist_items` array — do NOT serialize them into `content` as plain text. For freeform notes, use note_type='note' and put the body in `content`. `due_date` accepts natural language like 'tomorrow at 9am' (parsed in the user's timezone) and fires a notification — do not also create a calendar event for the same reminder."
-  (action string #:enum ("list" "add" "update" "delete" "toggle_item")
+  #:description "Manage notes and checklists (Google Keep-style): list, view, add, update, delete, toggle_item. Use list/search to find candidate notes, then view with the note id when you need the full body. IMPORTANT: For to-do lists / checklists, set note_type='checklist' and pass the items as the `checklist_items` array — do NOT serialize them into `content` as plain text. For freeform notes, use note_type='note' and put the body in `content`. `due_date` accepts natural language like 'tomorrow at 9am' (parsed in the user's timezone) and fires a notification — do not also create a calendar event for the same reminder."
+  (action string #:enum ("list" "search" "view" "add" "update" "delete" "toggle_item")
           #:description "The action to perform")
+  (query string #:optional #:description "Search text for action='search'")
   (id string #:optional #:description "Note id (for update/delete/toggle_item); 8-char prefix is fine")
   (title string #:optional #:description "Note title (for add/update)")
   (content string #:optional #:description "Freeform body text. Use this for note_type='note'. Do NOT use this for checklists — pass `checklist_items` instead.")
