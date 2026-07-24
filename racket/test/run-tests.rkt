@@ -1052,6 +1052,46 @@
       (check-equal? (string-length (truncate-output (make-string 10500 #\x))) 10035)  ; 10000 + msg
       (check-true (string-suffix? (truncate-output (make-string 10500 #\x))
                                   "\n... (truncated, 10500 chars total)"))
+      ;; ---- file-tool security: deny-list + skip-dirs + confinement
+      ;; (#5010/#5011/#5094/#5189/#4538) ----
+      ;; unit: _is_sensitive_path port — case-insensitive on dir AND filename
+      (check-true  (sensitive-path? "/home/u/.ssh/id_rsa"))
+      (check-true  (sensitive-path? "/x/.SSH/AUTHORIZED_KEYS"))   ; case-insensitive
+      (check-true  (sensitive-path? "/proj/.env"))
+      (check-false (sensitive-path? "/proj/src/main.rkt"))
+      ;; fixtures: a secret file, a secret dir, and a skip-dir
+      (make-directory* (build-path dir ".ssh"))
+      (call-with-output-file (build-path dir ".ssh" "id_rsa") #:exists 'replace
+        (lambda (o) (display "PRIVATE-KEY-SECRETVAL\n" o)))
+      (call-with-output-file (build-path dir ".env") #:exists 'replace
+        (lambda (o) (display "API_TOKEN=SECRETVAL\n" o)))
+      (make-directory* (build-path dir "node_modules"))
+      (call-with-output-file (build-path dir "node_modules" "junk.js") #:exists 'replace
+        (lambda (o) (display "SECRETVAL\n" o)))
+      ;; read_file / edit_file refuse a sensitive path
+      (check-true (regexp-match? #rx"sensitive file denied"
+                   (ex (function-call->tool-block "read_file"
+                        (jsexpr->string (hasheq 'path (path-of (build-path dir ".env"))))))))
+      (check-true (regexp-match? #rx"sensitive file denied"
+                   (ex (function-call->tool-block "edit_file"
+                        (jsexpr->string (hasheq 'path (path-of (build-path dir ".ssh" "id_rsa"))
+                                                'old_string "x" 'new_string "y"))))))
+      ;; glob **/* skips the secret file, the secret dir's contents, node_modules
+      (define gsec (ex (function-call->tool-block "glob"
+                         (jsexpr->string (hasheq 'pattern "**/*" 'path (path-of dir))))))
+      (check-true  (string-contains? gsec "x.txt"))
+      (check-false (string-contains? gsec "id_rsa"))
+      (check-false (string-contains? gsec ".env"))
+      (check-false (string-contains? gsec "junk.js"))            ; node_modules pruned
+      ;; grep never reads inside a sensitive file or a skip-dir: SECRETVAL lives
+      ;; only in .env, .ssh/id_rsa, and node_modules — all excluded.
+      (check-equal? (ex (function-call->tool-block "grep"
+                          (jsexpr->string (hasheq 'pattern "SECRETVAL" 'path (path-of dir)))))
+                    "(no matches)")
+      ;; glob literal can't escape the search root via ../ (path-oracle guard)
+      (check-equal? (ex (function-call->tool-block "glob"
+                          (jsexpr->string (hasheq 'pattern "../x.txt" 'path (path-of dir)))))
+                    "(no matches)")
       (delete-directory/files dir))
 
     (test-case "system-prompt assembly (enabled tools only)"
