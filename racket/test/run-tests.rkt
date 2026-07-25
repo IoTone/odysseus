@@ -1122,6 +1122,22 @@
       (check-equal? (ex (function-call->tool-block "glob"
                           (jsexpr->string (hasheq 'pattern "../x.txt" 'path (path-of dir)))))
                     "(no matches)")
+      ;; ---- #3955 web_fetch download budget ----
+      (check-equal? (web-fetch-budget #f #f) 2000000)        ; default soft cap
+      (check-equal? (web-fetch-budget #t #f) 20000000)       ; full → hard cap
+      (check-equal? (web-fetch-budget #f 500) 500)           ; explicit max_bytes
+      (check-equal? (web-fetch-budget #f 99999999) 20000000) ; clamped to hard cap
+      (check-equal? (web-fetch-budget #t 500) 500)           ; max_bytes overrides full
+      ;; budget cutoff → leading [partial content] notice, Source header, body cut
+      (define wtrunc (web-fetch-output #"hello world body" 5 "http://ex"))
+      (check-true (string-prefix? wtrunc "[partial content: download stopped at 5 bytes."))
+      (check-true (string-contains? wtrunc "Source: http://ex"))
+      (check-true (string-contains? wtrunc "hello"))
+      (check-false (string-contains? wtrunc "world"))        ; body cut at the budget
+      ;; under budget → no notice, just Source + body
+      (check-equal? (web-fetch-output #"hi there" 100 "http://ex") "Source: http://ex\n\nhi there")
+      ;; empty body → error
+      (check-true (string-contains? (web-fetch-output #"" 100 "http://ex") "no readable text content"))
       (delete-directory/files dir))
 
     (test-case "system-prompt assembly (enabled tools only)"

@@ -22,11 +22,16 @@
 
 (provide make-exec default-handlers
          truncate-output read-clip          ; exported for tests (output-cap fidelity)
-         sensitive-path?)                    ; exported for tests (deny-list)
+         sensitive-path?                     ; exported for tests (deny-list)
+         web-fetch-budget web-fetch-output)  ; exported for tests (download budget)
 
 ;; Output caps — single source of truth in src/constants.py.
 (define MAX-OUTPUT-CHARS 10000)   ; bash/python/web_search/web_fetch/grep/glob/ls
 (define MAX-READ-CHARS   20000)   ; read_file / document preview
+
+;; web_fetch download budget (#3955/#3812), in bytes — src/constants.py.
+(define WEB-FETCH-SOFT-MAX-BYTES  2000000)   ; default (2 MB)
+(define WEB-FETCH-HARD-MAX-BYTES 20000000)   ; absolute ceiling even with override (20 MB)
 
 ;; Port of src/tool_execution.py _truncate: cap, then a total-length note.
 (define (truncate-output s [limit MAX-OUTPUT-CHARS])
@@ -151,6 +156,43 @@
   (define out (open-output-string))
   (parameterize ([current-output-port out] [current-error-port out]) (system command))
   (truncate-output (get-output-string out)))
+
+;; thousands separators, for the byte counts in the partial-content notice.
+(define (commafy n)
+  (let loop ([s (number->string n)] [acc ""])
+    (if (<= (string-length s) 3) (string-append s acc)
+        (loop (substring s 0 (- (string-length s) 3))
+              (string-append "," (substring s (- (string-length s) 3)) acc)))))
+
+;; web_fetch download budget (#3955): full → hard cap; a positive max_bytes
+;; overrides, clamped to the hard cap; otherwise the soft cap.
+(define (web-fetch-budget full? mb)
+  (min WEB-FETCH-HARD-MAX-BYTES
+       (or (and (exact-integer? mb) (> mb 0) mb)
+           (if full? WEB-FETCH-HARD-MAX-BYTES WEB-FETCH-SOFT-MAX-BYTES))))
+
+;; Assemble the web_fetch result from the downloaded bytes: a leading
+;; partial-content notice when the budget cut the body short (so the
+;; MAX_OUTPUT_CHARS trim can't drop it), then `Source: url`, then the text,
+;; capped. `raw-bytes` may hold up to budget+1 bytes; >budget ⇒ truncated.
+(define (web-fetch-output raw-bytes budget url)
+  (define truncated? (> (bytes-length raw-bytes) budget))
+  (define kept (if truncated? (subbytes raw-bytes 0 budget) raw-bytes))
+  (define text (string-trim (bytes->string/utf-8 kept #\uFFFD)))
+  (cond
+    [(string=? text "")
+     (format "web_fetch: ~a: no readable text content (not HTML, or the page needs JS/login)" url)]
+    [else
+     (define size-note
+       (if truncated?
+           (format (string-append "[partial content: download stopped at ~a bytes. "
+                                  "Re-call with {\"url\": \"~a\", \"full\": true} to fetch up to ~a bytes.]\n\n")
+                   (commafy budget) url (commafy WEB-FETCH-HARD-MAX-BYTES))
+           ""))
+     (define output (string-append size-note "Source: " url "\n\n" text))
+     (if (> (string-length output) MAX-OUTPUT-CHARS)
+         (string-append (substring output 0 MAX-OUTPUT-CHARS) "\n\n[...truncated]")
+         output)]))
 
 ;; ---- handlers --------------------------------------------------------------
 (define default-handlers
@@ -292,9 +334,26 @@
    "web_fetch"
    (lambda (content)
      (define a (parse-json-content content))
-     (define url (let ([u (hash-ref a 'url "")]) (if (string-prefix? u "http") u (string-append "https://" u))))
-     (with-handlers ([exn:fail? (lambda (e) (format "error fetching ~a: ~a" url (exn-message e)))])
-       (truncate-output (port->string (get-pure-port (string->url url) #:redirections 5)))))))
+     (define raw (string-trim (let ([u (hash-ref a 'url "")]) (if (string? u) u ""))))
+     (define low (string-downcase raw))
+     (define budget (web-fetch-budget (eq? (hash-ref a 'full #f) #t) (hash-ref a 'max_bytes #f)))
+     (cond
+       [(or (string=? raw "") (string-prefix? raw "{") (regexp-match? #rx"[ \t\n]" raw))
+        "web_fetch: provide a single URL or domain, e.g. example.com"]
+       [(and (string-contains? low "://")
+             (not (or (string-prefix? low "http://") (string-prefix? low "https://"))))
+        (format "web_fetch: unsupported URL scheme (only http/https): ~a"
+                (substring raw 0 (min 80 (string-length raw))))]
+       [else
+        (define url (if (or (string-prefix? low "http://") (string-prefix? low "https://"))
+                        raw (string-append "https://" raw)))
+        (with-handlers ([exn:fail? (lambda (e) (format "web_fetch: ~a: ~a" url (exn-message e)))])
+          ;; Stream with a byte budget instead of buffering the whole body:
+          ;; read budget+1 bytes so >budget signals truncation (#3955).
+          (define port (get-pure-port (string->url url) #:redirections 5))
+          (define chunk (read-bytes (add1 budget) port))
+          (close-input-port port)
+          (web-fetch-output (if (eof-object? chunk) #"" chunk) budget url))]))))
 
 ;; index of first char (racket has no string-index)
 (define (string-index s ch)
