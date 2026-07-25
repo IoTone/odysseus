@@ -226,17 +226,32 @@
                        b)])))
             (loop (cdr rows) new-best)]))))
 
-;; tool-toggle aliases (disable_tool / enable_tool)
+;; BUILTIN_EMAIL_TOOLS (src/tool_security.py), sorted. The email toggle covers
+;; every email tool in BOTH spellings (bare + mcp__email__*) so it hides the
+;; function schema AND the MCP schema — deriving from the full set instead of a
+;; hand-picked subset (#3681).
+(define builtin-email-tools
+  '("ai_draft_email_reply" "archive_email" "bulk_email" "delete_email"
+    "download_attachment" "draft_email" "draft_email_reply" "list_email_accounts"
+    "list_emails" "mark_email_read" "read_email" "reply_to_email"
+    "scan_email_unsubscribes" "search_emails" "send_email" "unsubscribe_email"))
+(define email-toggle-tools
+  (append builtin-email-tools
+          (map (lambda (t) (string-append "mcp__email__" t)) builtin-email-tools)))
+
+;; tool-toggle aliases (disable_tool / enable_tool) — mirrors admin_tools.py
+;; _ALIASES. search/web/research each cover BOTH web_search and web_fetch (#4742).
 (define toggle-aliases
   (hash "shell" '("bash") "terminal" '("bash")
-        "search" '("web_search") "web" '("web_search") "browser" '("builtin_browser")
+        "search" '("web_search" "web_fetch") "web" '("web_search" "web_fetch")
+        "browser" '("builtin_browser")
         "documents" '("create_document" "edit_document" "update_document" "suggest_document")
         "doc" '("create_document" "edit_document" "update_document" "suggest_document")
         "memory" '("manage_memory") "skills" '("manage_skills")
         "images" '("generate_image") "image" '("generate_image")
         "tasks" '("manage_tasks") "notes" '("manage_notes") "calendar" '("manage_calendar")
-        "email" '("mcp__email__list_emails" "mcp__email__read_email" "mcp__email__send_email")
-        "research" '("web_search")))
+        "email" email-toggle-tools
+        "research" '("web_search" "web_fetch")))
 
 ;; ---- the tool ----------------------------------------------------------------
 ;; conn is only used by `set` for endpoint-model resolution.

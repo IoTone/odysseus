@@ -731,6 +731,17 @@
       (check-equal? (hash-ref (st "{\"action\":\"list_tools\"}") 'disabled) '("bash"))
       (check-true (string-contains? (hash-ref (st "{\"action\":\"enable_tool\",\"tool\":\"shell\"}") 'response)
                                     "Now disabled: (none)."))
+      ;; #4742: search/web/research each cover BOTH web_search and web_fetch
+      (check-true (string-contains? (hash-ref (st "{\"action\":\"disable_tool\",\"tool\":\"search\"}") 'response)
+                                    "Disabled search (web_search, web_fetch)"))
+      (check-equal? (hash-ref (st "{\"action\":\"list_tools\"}") 'disabled) '("web_search" "web_fetch"))
+      (st "{\"action\":\"enable_tool\",\"tool\":\"search\"}")
+      ;; #3681: email toggle expands to the full BUILTIN_EMAIL_TOOLS set, both spellings
+      (define ed (hash-ref (st "{\"action\":\"disable_tool\",\"tool\":\"email\"}") 'disabled))
+      (check-true (and (member "send_email" ed) #t))
+      (check-true (and (member "mcp__email__send_email" ed) #t))
+      (check-equal? (length ed) 32)
+      (st "{\"action\":\"enable_tool\",\"tool\":\"email\"}")
       (delete-directory/files sdir)
       (disconnect c))
 
