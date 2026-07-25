@@ -525,18 +525,27 @@
         "then_task_id TEXT,webhook_token TEXT,crew_member_id TEXT,character_id TEXT,"
         "max_steps INT,email_results INT,notifications_enabled INT,created_at TEXT,updated_at TEXT)"))
       (define (run s #:owner [o #f]) (manage-tasks c s #:owner o))
+      ;; #8 empty list → "No scheduled tasks found."
+      (check-equal? (hash-ref (run "{\"action\":\"list\"}") 'response) "No scheduled tasks found.")
       (define r1 (run "{\"action\":\"create\",\"prompt\":\"Summarize my day\",\"schedule\":\"daily\",\"scheduled_time\":\"07:30\"}"))
       (check-equal? (hash-ref r1 'exit_code) 0)
       (define tid (hash-ref r1 'task_id))
       (check-true (string-prefix? (hash-ref r1 'response)
                                   "Created task 'Summarize my day'"))  ; name falls back to prompt[:50]
-      ;; list: response + serialized tasks array (next_run is iso+Z)
+      ;; #8 list: numbered "N. name (id) — status, schedule, time, next <iso>Z"
       (define l1 (run "{\"action\":\"list\"}"))
-      (check-equal? (hash-ref l1 'response) "Found 1 tasks")
-      (define t1 (car (hash-ref l1 'tasks)))
-      (check-equal? (hash-ref t1 'task_type) "llm")
-      (check-equal? (hash-ref t1 'trigger_type) "schedule")
-      (check-true (string-suffix? (hash-ref t1 'next_run) "Z"))
+      (check-true (string-prefix? (hash-ref l1 'response) "Found 1 tasks:"))
+      (check-true (string-contains? (hash-ref l1 'response) "1. Summarize my day ("))
+      (check-true (string-contains? (hash-ref l1 'response) "active, daily, 07:30, next "))
+      (check-true (regexp-match? #rx"next [0-9T:-]+Z" (hash-ref l1 'response)))
+      ;; #8 NL arg coercion: no action + task/time infers create; task→name/prompt,
+      ;; time→scheduled_time, day_of_week name→index (friday=4)
+      (define co (run "{\"task\":\"Weekly report\",\"schedule\":\"weekly\",\"time\":\"08:00\",\"day_of_week\":\"friday\"}"))
+      (check-equal? (hash-ref co 'exit_code) 0)
+      (check-true (string-prefix? (hash-ref co 'response) "Created task 'Weekly report'"))
+      (check-equal? (query-row c (string-append "SELECT name, prompt, scheduled_time, scheduled_day, schedule"
+                                                " FROM scheduled_tasks WHERE name = 'Weekly report'"))
+                    #("Weekly report" "Weekly report" "08:00" 4 "weekly"))
       ;; create validations
       (check-equal? (hash-ref (run "{\"action\":\"create\",\"task_type\":\"research\"}") 'error)
                     "Prompt is required for llm/research tasks")

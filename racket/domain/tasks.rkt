@@ -104,13 +104,40 @@
          'forbidden]
         [else r]))
 
+;; weekday name → 0=Monday..6=Sunday (matches compute-next-run's convention)
+(define day-index
+  (hash "monday" 0 "mon" 0 "tuesday" 1 "tue" 1 "tues" 1 "wednesday" 2 "wed" 2
+        "thursday" 3 "thu" 3 "thur" 3 "thurs" 3 "friday" 4 "fri" 4
+        "saturday" 5 "sat" 5 "sunday" 6 "sun" 6))
+
+;; Natural-language arg coercion (Python's do_manage_tasks preamble): let the
+;; model say {"task": "...", "time": "8am", "day_of_week": "friday"} and infer
+;; action=create + the canonical field names.
+(define (coerce-task-args args)
+  (define (has? k)     (jtruthy (jget args k)))                        ; Python truthiness
+  (define (present? a k) (and (hash-has-key? a k) (not (eq? (hash-ref a k) 'null)))) ; is not None
+  (let* ([a args]
+         [a (if (and (not (jtruthy (jget a 'action)))
+                     (ormap (lambda (k) (present? a k)) '(task description schedule time day_of_week)))
+                (hash-set a 'action "create") a)]
+         [a (if (and (has? 'task) (not (jtruthy (jget a 'name))))   (hash-set a 'name (jget a 'task)) a)]
+         [a (if (and (has? 'task) (not (jtruthy (jget a 'prompt)))) (hash-set a 'prompt (jget a 'task)) a)]
+         [a (if (and (has? 'description) (not (jtruthy (jget a 'prompt)))) (hash-set a 'prompt (jget a 'description)) a)]
+         [a (if (and (has? 'time) (not (jtruthy (jget a 'scheduled_time)))) (hash-set a 'scheduled_time (jget a 'time)) a)]
+         [a (if (and (present? a 'day_of_week) (not (present? a 'scheduled_day)))
+                (let ([d (hash-ref day-index (string-downcase (string-trim (format "~a" (jget a 'day_of_week)))) #f)])
+                  (if d (hash-set a 'scheduled_day d) a))
+                a)])
+    a))
+
 ;; manage-tasks : conn × JSON-args-string × #:owner → result jsexpr
 (define (manage-tasks conn content #:owner [owner #f])
-  (define args (with-handlers ([exn:fail? (lambda (_) 'bad)])
-                 (let ([v (string->jsexpr content)]) (if (hash? v) v (hasheq)))))
+  (define args0 (with-handlers ([exn:fail? (lambda (_) 'bad)])
+                  (let ([v (string->jsexpr content)]) (if (hash? v) v (hasheq)))))
   (cond
-    [(eq? args 'bad) (err "Invalid JSON arguments")]
+    [(eq? args0 'bad) (err "Invalid JSON arguments")]
     [else
+     (define args (coerce-task-args args0))
      (define action (or (jget args 'action) "list"))
      (with-handlers ([exn:fail? (lambda (e) (err (exn-message e)))])
        (case action
@@ -124,27 +151,27 @@
 
 (define (tasks-list conn args owner)
   (define rows (apply query-rows conn
-                 (string-append "SELECT id, name, status, task_type, action, trigger_type,"
-                                " schedule, trigger_event, trigger_count, next_run, last_run, run_count"
+                 (string-append "SELECT id, name, status, schedule, scheduled_time, next_run"
                                 " FROM scheduled_tasks"
                                 (if (jtruthy owner) " WHERE owner = ?" "")
                                 " ORDER BY created_at DESC")
                  (if (jtruthy owner) (list owner) '())))
-  (define tasks
-    (for/list ([r (in-list rows)])
-      (hasheq 'id (vector-ref r 0)
-              'name (col (vector-ref r 1))
-              'status (col (vector-ref r 2))
-              'task_type (or (col (vector-ref r 3)) "llm")
-              'action (sql-or-null (vector-ref r 4))
-              'trigger_type (or (col (vector-ref r 5)) "schedule")
-              'schedule (sql-or-null (vector-ref r 6))
-              'trigger_event (sql-or-null (vector-ref r 7))
-              'trigger_count (let ([v (vector-ref r 8)]) (if (sql-null? v) 'null v))
-              'next_run (dt-z (vector-ref r 9))
-              'last_run (dt-z (vector-ref r 10))
-              'run_count (sql->int (vector-ref r 11)))))
-  (hasheq 'response (format "Found ~a tasks" (length tasks)) 'tasks tasks 'exit_code 0))
+  (cond
+    [(null? rows) (hasheq 'response "No scheduled tasks found." 'exit_code 0)]
+    [else
+     ;; numbered "N. name (id) — status[, schedule][, time][, next <iso>Z]"
+     (define lines
+       (cons (format "Found ~a tasks:" (length rows))
+             (for/list ([r (in-list rows)] [idx (in-naturals 1)])
+               (define bits
+                 (append (list (or (col (vector-ref r 2)) "unknown"))
+                         (if (jtruthy (col (vector-ref r 3))) (list (format "~a" (col (vector-ref r 3)))) '())
+                         (if (jtruthy (col (vector-ref r 4))) (list (format "~a" (col (vector-ref r 4)))) '())
+                         (if (sql-null? (vector-ref r 5)) '()
+                             (list (format "next ~aZ" (sqlite-datetime->iso (vector-ref r 5)))))))
+               (format "~a. ~a (~a) — ~a" idx (col (vector-ref r 1)) (vector-ref r 0)
+                       (string-join bits ", ")))))
+     (hasheq 'response (string-join lines "\n") 'exit_code 0)]))
 
 (define (tasks-create conn args owner)
   (define task-type (or (jget args 'task_type) "llm"))
