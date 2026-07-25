@@ -676,6 +676,19 @@
       (define r1 (manage-documents c "{\"action\":\"read\",\"id\":\"d1\"}" #:owner "alice"))
       (check-true (string-contains? (hash-ref r1 'response) "```markdown\n# Standup\n```"))
       (check-false (hash-ref (hash-ref r1 'document) 'truncated))
+      (check-equal? (hash-ref (hash-ref r1 'document) 'offset) 0)
+      (check-equal? (hash-ref (hash-ref r1 'document) 'next_offset) 'null)
+      ;; #4784 pagination: limit cuts the body and reports next_offset; a follow-up
+      ;; read at that offset returns the tail (d1 content = "# Standup", 9 chars).
+      (define rp (manage-documents c "{\"action\":\"read\",\"id\":\"d1\",\"limit\":4}" #:owner "alice"))
+      (check-true  (hash-ref (hash-ref rp 'document) 'truncated))
+      (check-equal? (hash-ref (hash-ref rp 'document) 'offset) 0)
+      (check-equal? (hash-ref (hash-ref rp 'document) 'next_offset) 4)
+      (check-true  (string-contains? (hash-ref rp 'response) "next_offset=4"))
+      (define rp2 (manage-documents c "{\"action\":\"read\",\"id\":\"d1\",\"offset\":4,\"limit\":100}" #:owner "alice"))
+      (check-false (hash-ref (hash-ref rp2 'document) 'truncated))
+      (check-equal? (hash-ref (hash-ref rp2 'document) 'content) "andup")
+      (check-equal? (hash-ref (hash-ref rp2 'document) 'next_offset) 'null)
       ;; delete soft-archives; falls back to most-recent when no id given
       (check-equal? (hash-ref (manage-documents c "{\"action\":\"delete\"}" #:owner "alice") 'response)
                     "Deleted document 'Meeting notes'")

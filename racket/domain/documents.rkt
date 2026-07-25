@@ -120,24 +120,32 @@
                [(not r) (err (format "Document '~a' not found" doc-id))]
                [else
                 (define body (or (col (vector-ref r 3)) ""))
-                (define lim (let ([l (jget args 'limit)])
-                              (cond [(number? l) (inexact->exact (truncate l))]
-                                    [(and (string? l) (string->number l))
-                                     => (lambda (n) (inexact->exact (truncate n)))]
-                                    [else MAX-READ-CHARS])))
-                (define truncated? (> (string-length body) lim))
+                (define blen (string-length body))
+                ;; #4784: paginate via offset/limit; limit clamped to [1, MAX],
+                ;; offset clamped to [0, len]. next_offset lets the model page on.
+                (define (as-int v dflt)
+                  (cond [(number? v) (inexact->exact (truncate v))]
+                        [(and (string? v) (string->number v))
+                         => (lambda (n) (inexact->exact (truncate n)))]
+                        [else dflt]))
+                (define lim (max 1 (min (as-int (jget args 'limit) MAX-READ-CHARS) MAX-READ-CHARS)))
+                (define offset (min (max 0 (as-int (jget args 'offset) 0)) blen))
+                (define end (min (+ offset lim) blen))
+                (define truncated? (< end blen))
                 (define preview
-                  (string-append (substring body 0 (min lim (string-length body)))
+                  (string-append (substring body offset end)
                                  (if truncated?
-                                     (format "\n... (truncated, ~a chars total)" (string-length body))
+                                     (format "\n... (truncated, ~a chars total; next_offset=~a)" blen end)
                                      "")))
                 (hasheq 'response (format "[~a](#document-~a) — click to open in editor.\n\n```~a\n~a\n```"
                                           (col (vector-ref r 1)) (vector-ref r 0)
                                           (or (col (vector-ref r 2)) "") preview)
                         'document (hasheq 'id (vector-ref r 0) 'title (col (vector-ref r 1))
                                           'language (sql-or-null (vector-ref r 2))
-                                          'size (string-length body) 'content preview
-                                          'truncated truncated?)
+                                          'size blen 'content preview
+                                          'truncated truncated?
+                                          'offset offset
+                                          'next_offset (if truncated? end 'null))
                         'exit_code 0)])])]
          [("delete")
           (define doc-id (or (jget args 'document_id) (jget args 'id) (jget args 'uid)))
